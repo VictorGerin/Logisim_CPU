@@ -1,3 +1,0 @@
-# Logisim PLA program table
-11 00
-11 10
