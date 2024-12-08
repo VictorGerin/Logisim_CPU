@@ -1,0 +1,24 @@
+GAL22V10
+StateMachine
+
+;1      2       3       4       5       6       7       8       9       10      11      12
+Instru7 Instru6 Instru4 Instru3 Instru2 Instru1 Instru0 STATUS2 STATUS1 STATUS0 STATE4  GND
+STATE3  STATE2  STATE1  STATE0  Instru5 SelAdr1 SelAdr0 Func2   Func1   Func0   BusSel  VCC
+;13     14      15      16      17      18      19      20      21      22      23      24
+
+ 
+SelAdr1 =   /STATE4*/STATE3*/STATE2* STATE1* STATE0* Instru7         * Instru5         * Instru3* Instru2* Instru1                                    +
+            /STATE4*/STATE3*/STATE2* STATE1* STATE0* Instru7         * Instru5                  */Instru2* Instru1                                    +
+            /STATE4*/STATE3*/STATE2* STATE1* STATE0* Instru7         * Instru5*/Instru4                  */Instru1                                    +
+            /STATE4*/STATE3*/STATE2* STATE1* STATE0* Instru7* Instru6                                    * Instru1*/Instru0                           +
+            /STATE4*/STATE3*/STATE2* STATE1* STATE0* Instru7* Instru6* Instru5                           */Instru1                                    +
+            /STATE4*/STATE3*/STATE2* STATE1* STATE0* Instru7         * Instru5                                    * Instru0                           +
+             STATE4        */STATE2*/STATE1* STATE0                                                                                                   +
+             STATE4        * STATE2* STATE1*/STATE0                                                                                                   +
+             STATE4        * STATE2*/STATE1*/STATE0                                                                                                   +
+             STATE4        * STATE2* STATE1* STATE0                                                                                                   +
+             STATE4        */STATE2* STATE1*/STATE0                                                                                                   +
+                     STATE3* STATE2* STATE1* STATE0                                                                                                   +
+             STATE4        * STATE2*/STATE1* STATE0
+ 
+DESCRIPTION

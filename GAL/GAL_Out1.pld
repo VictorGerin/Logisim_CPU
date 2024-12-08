@@ -1,0 +1,63 @@
+GAL22V10
+StateMachine
+
+;1      2       3       4       5       6       7       8       9       10      11      12
+Instru7 Instru6 Instru4 Instru3 Instru2 Instru1 Instru0 STATUS2 STATUS1 STATUS0 STATE4  GND
+STATE3  STATE2  STATE1  STATE0  SelAdr2 SelAdr1 SelAdr0 Func2   Func1   Func0   BusSel  VCC
+;13     14      15      16      17      18      19      20      21      22      23      24
+
+
+
+SelAdr2 =           STATE3*         STATE1* STATE0*                           /Instru4*/Instru3*/Instru2*                                     STATUS0   + ;x1x11 xxx0-00xx xx1 1
+                    STATE3*         STATE1* STATE0*                           /Instru4*/Instru3* Instru2*                                    /STATUS0   + ;x1x11 xxx0-01xx xx0 1
+                    STATE3*         STATE1* STATE0*                           /Instru4* Instru3*                           /STATUS2                     + ;x1x11 xxx0-1xxx 0xx 1
+                    STATE3*         STATE1* STATE0*                            Instru4*                                             /STATUS1            + ;x1x11 xxx1-xxxx x0x 1
+                    STATE3* STATE2* STATE1* STATE0                                                                                                      + ;x1111 xxxx-xxxx xxx 1
+           /STATE4*        /STATE2* STATE1* STATE0                                                                                                      + ;0x011 xxxx-xxxx xxx 1
+            STATE4*         STATE2*/STATE1* STATE0                                                                                                      + ;1x101 xxxx-xxxx xxx 1
+            STATE4*/STATE3*/STATE2*         STATE0                                                                                                      + ;100x0 xxxx-xxxx xxx 1
+            STATE4*                 STATE1*/STATE0                                                                                                        ;1xx10 xxxx-xxxx xxx 1
+
+SelAdr1 =   STATE4*        /STATE2*         STATE0*                           /Instru4*/Instru3*/Instru2*                                    /STATUS0   + ;1x0x1 xxx0-00xx xx0 1
+            STATE4*        /STATE2*         STATE0*                           /Instru4*/Instru3* Instru2*                                     STATUS0   + ;1x0x1 xxx0-01xx xx1 1
+            STATE4*        /STATE2*         STATE0*                           /Instru4* Instru3*                            STATUS2                     + ;1x0x1 xxx0-1xxx 1xx 1
+            STATE4*        /STATE2*         STATE0*                            Instru4*                                              STATUS1            + ;1x0x1 xxx1-xxxx x1x 1
+            STATE4*        /STATE2*/STATE1* STATE0                                                                                                      + ;1x001 xxxx-xxxx xxx 1
+            STATE4* STATE3*        /STATE1*                                                      Instru2*/Instru1                                       + ;11x0x xxxx-x10x xxx 1
+                    STATE3* STATE2* STATE1*/STATE0                                                                                                      + ;x1110 xxxx-xxxx xxx 1
+            STATE4*         STATE2*/STATE1*/STATE0                                                                                                      + ;1x100 xxxx-xxxx xxx 1
+           /STATE4*/STATE3*/STATE2* STATE1*/STATE0                                                                                                      + ;00010 xxxx-xxxx xxx 1
+                   /STATE3*/STATE2*/STATE1* STATE0                                                                                                      + ;x0001 xxxx-xxxx xxx 1
+            STATE4*/STATE3*/STATE2*         STATE0                                                                                                        ;100x1 xxxx-xxxx xxx 1
+
+SelAdr0 =          STATE3* STATE2* STATE1*/STATE0                                                                                                       + ;x1110 xxxx-xxxx xxx 1
+           STATE4*        /STATE2*/STATE1* STATE0                                                                                                       + ;1x001 xxxx-xxxx xxx 1
+           STATE4* STATE3*        /STATE1*                                                     /Instru2* Instru1                                        + ;11x0x xxxx-x01x xxx 1
+           STATE4*         STATE2*/STATE1*/STATE0                                                                                                       + ;1x100 xxxx-xxxx xxx 1
+          /STATE4*        /STATE2* STATE1*/STATE0                                                                                                       + ;0x010 xxxx-xxxx xxx 1
+                  /STATE3*/STATE2*/STATE1* STATE0                                                                                                         ;x0001 xxxx-xxxx xxx 1
+
+Func2 =    /STATE4*/STATE3* STATE2* STATE1*                                                      Instru2                                                  ;0011x xxxx-x1xx xxx 1
+
+Func1 =    /STATE4*/STATE3* STATE2* STATE1*                                                               Instru1                                         ;0011x xxxx-xx1x xxx 1
+
+Func0 =    /STATE4*/STATE3* STATE2* STATE1*                                                                        Instru0                                ;0011xxxxxxxx1xxx
+
+BusSel =     STATE4* STATE3*        /STATE1*/STATE0*                                    /Instru3                                                         + ;11x00xxxx0xxxxxx
+            STATE4*         STATE2* STATE1*/STATE0                                                                                                      + ;1x110xxxxxxxxxxx
+           /STATE4* STATE3*/STATE2* STATE1* STATE0                                                                                                        ;01011xxxxxxxxxxx
+
+;Func0 =     STATE4* STATE3* STATE2* STATE1* STATE0* Instru7* Instru6* Instru5* Instru4* Instru3* Instru2* Instru1* Instru0* STATUS2* STATUS1* STATUS0   + ;x1x11 xxx0-00xx xx1 1
+;            STATE4* STATE3* STATE2* STATE1* STATE0* Instru7* Instru6* Instru5* Instru4* Instru3* Instru2* Instru1* Instru0* STATUS2* STATUS1* STATUS0   + ;x1x11 xxx0-01xx xx0 1
+;            STATE4* STATE3* STATE2* STATE1* STATE0* Instru7* Instru6* Instru5* Instru4* Instru3* Instru2* Instru1* Instru0* STATUS2* STATUS1* STATUS0   + ;x1x11 xxx0-1xxx 0xx 1
+;            STATE4* STATE3* STATE2* STATE1* STATE0* Instru7* Instru6* Instru5* Instru4* Instru3* Instru2* Instru1* Instru0* STATUS2* STATUS1* STATUS0   + ;x1x11 xxx1-xxxx x0x 1
+;            STATE4* STATE3* STATE2* STATE1* STATE0* Instru7* Instru6* Instru5* Instru4* Instru3* Instru2* Instru1* Instru0* STATUS2* STATUS1* STATUS0   + ;x1111 xxxx-xxxx xxx 1
+;            STATE4* STATE3* STATE2* STATE1* STATE0* Instru7* Instru6* Instru5* Instru4* Instru3* Instru2* Instru1* Instru0* STATUS2* STATUS1* STATUS0   + ;0x011 xxxx-xxxx xxx 1
+;            STATE4* STATE3* STATE2* STATE1* STATE0* Instru7* Instru6* Instru5* Instru4* Instru3* Instru2* Instru1* Instru0* STATUS2* STATUS1* STATUS0   + ;1x101 xxxx-xxxx xxx 1
+;            STATE4* STATE3* STATE2* STATE1* STATE0* Instru7* Instru6* Instru5* Instru4* Instru3* Instru2* Instru1* Instru0* STATUS2* STATUS1* STATUS0     ;100x0 xxxx-xxxx xxx 1
+
+
+
+DESCRIPTION
+Computers de next STATE of the STATE machine
+and stores the current State

@@ -1,0 +1,4 @@
+0xxx0xxxxxx1 1
+0xxx1xxxxx1x 1
+1xxx0xxxx1xx 1
+1xxx1xxx1xxx 1
