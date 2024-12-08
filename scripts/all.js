@@ -8,6 +8,8 @@ const options = require('command-line-args')([
     { name: 'input', alias: 'i', type: String },
     { name: 'negate', alias: 'n', type: Boolean },
     { name: 'out', type: String, defaultValue: 'gal' },
+    { name: 'folder_out', type: String, defaultValue: '' },
+
 ])
 
 
@@ -48,7 +50,7 @@ function getHeader(originalFileData) {
 
             let arr = []
             for(let i = match.groups.msb; i >= match.groups.lsb; i--) {
-                arr.push(`${match.groups.name}${i}`)
+                arr.push(`${match.groups.name}_${i}`)
             }
 
             return arr;
@@ -92,9 +94,13 @@ async function outputLogisimPLA(otimmazed_data, input, output) {
 
     for(let i = 0; i < output.length; i++) {
         let splited = await execFileAsync(`./scripts/split.js`, otimmazed_data, [ i ]);
-        
-        console.log(output[i]);
-        console.log(splited);
+
+        if(options.folder_out) {
+            fs.writeFileSync(`${options.folder_out}/${output[i]}.txt`, splited);
+        } else {
+            console.log(output[i]);
+            console.log(splited);
+        }
     }
 }
 
@@ -200,7 +206,7 @@ async function main()
 
     if(options.out === "gal") {
         await outputGal(otimmazed_data, input, output);
-    } else if(options.out === "logsim_pla") {
+    } else if(options.out === "logisim_pla") {
         await outputLogisimPLA(otimmazed_data, input, output)
     } else if(options.out === "teste")
     {

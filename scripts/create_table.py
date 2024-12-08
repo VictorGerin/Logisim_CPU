@@ -1,50 +1,46 @@
+#!/usr/bin/env python3
 
 
 
+qtdOutputBits = 12
+qtdInputBits = 8
 
-qtdOutputBits = 5
-qtdInputBits = 12
+def sliceToInt(slice, qtdBits):
+    outputVal = 0
+    for i in range(qtdBits):
+        outputVal |= slice[i] << i
+    return outputVal
 
+def intToSlice(input, qtdBits):
+    i = []
+    for index in range(qtdBits):
+        i.append((input >> index) & 1)
+    return i
 
 def process(input):
-    i = []
-    for index in range(qtdInputBits):
-        i.append((input >> index) & 1)
+    # i = intToSlice(input, qtdOutputBits)
 
-    outputBits = [0 for x in range(qtdOutputBits)]
+    centena = input // 100
+    input = input % 100
+    dezena = input // 10
+    input = input % 10
+    unidade = input // 1
 
-    outputBits[0] = (i[0] & i[1] & i[2] & i[3]) & 1
+    centena = [x for x in (intToSlice(centena, 4))]
+    dezena = [x for x in (intToSlice(dezena, 4))]
+    unidade = [x for x in (intToSlice(unidade, 4))]
 
-    outputBits[1] = (i[3] & i[4] & i[8] | \
-                     i[2] &~i[4] & i[8] | \
-                     i[1] & i[4] &~i[8] | \
-                     i[0] &~i[4] &~i[8]) & 1
 
-    outputBits[2] = (i[3] & i[5] & i[9] | \
-                     i[2] &~i[5] & i[9] | \
-                     i[1] & i[5] &~i[9] | \
-                     i[0] &~i[5] &~i[9]) & 1
+    unidade.extend(dezena)
+    unidade.extend(centena)
 
-    outputBits[3] = (i[3] & i[6] & i[10] | \
-                     i[2] &~i[6] & i[10] | \
-                     i[1] & i[6] &~i[10] | \
-                     i[0] &~i[6] &~i[10]) & 1
 
-    outputBits[4] = (i[3] & i[7] & i[11] | \
-                     i[2] &~i[7] & i[11] | \
-                     i[1] & i[7] &~i[11] | \
-                     i[0] &~i[7] &~i[11]) & 1
-
-    outputVal = 0
-    for i in range(qtdOutputBits):
-        outputVal |= outputBits[i] << i
-
-    return outputVal
+    return sliceToInt(unidade, qtdOutputBits)
 
 def printTable(input, output):
 
     for i in range(2**qtdInputBits):
-        print("{:>012b} | {:>05b}".format(input[i], output[i]))
+        print("{:>08b} | {:>012b}".format(int(input[i]), int(output[i])))
 
     pass
 
