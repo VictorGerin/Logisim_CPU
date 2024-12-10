@@ -1,90 +1,119 @@
+memorySize = 0x10000
 
+R0 = 0x01`4
+R1 = 0x02`4
+R2 = 0x03`4
+R3 = 0x04`4
+R4 = 0x05`4
+R5 = 0x06`4
+R6 = 0x07`4
 
-
-
-
-
-
-
-
-#subruledef  reg
-{
-    R0   => 0x01`4
-    R1   => 0x02`4
-    R2   => 0x03`4
-    R3   => 0x04`4
-    R4   => 0x05`4
-    R5   => 0x06`4
-    R6   => 0x07`4
-}
+r0 = R0
+r1 = R1
+r2 = R2
+r3 = R3
+r4 = R4
+r5 = R5
+r6 = R6
 
 #ruledef ; CPU instructions
 {
-    nop => 0b0000_0000_0000_0000
-    ldi {rd: reg}, {val: i8} => val @ rd @ 0b1000
-    mv {rd: reg}, {rs: reg} => 0b0000 @ rs @ rd @ 0b0000
-    jreli {addr_rel: i16} => (addr_rel - $)`8 @ 0b0000_1001 ; jump to relative address, "$" is the current address
-    jrelr {rs: reg} => 0b0000 @ rs @ 0b0000_0001
-    jabsr {rs: reg} => 0b0000 @ rs @ 0b0000_0010
-    add {rd: reg}, {rs: reg} => 0b0000 @ rs @ rd @ 0b0100
-    addc {rd: reg}, {rs: reg} => 0b0001 @ rs @ rd @ 0b0100
-    sub {rd: reg}, {rs: reg} => 0b0010 @ rs @ rd @ 0b0100
-    subc {rd: reg}, {rs: reg} => 0b0011 @ rs @ rd @ 0b0100
-    not {rd: reg} => 0b0100 @ 0b0000 @ rd @ 0b0100
-    neg {rd: reg} => 0b0101 @ 0b0000 @ rd @ 0b0100
-
-    shll  {rd: reg} => 0b0110 @ 0b0000 @ rd @ 0b0100
-    shlc  {rd: reg} => 0b0111 @ 0b0000 @ rd @ 0b0100
-    shrl  {rd: reg} => 0b1000 @ 0b0000 @ rd @ 0b0100
-    shrc  {rd: reg} => 0b1001 @ 0b0000 @ rd @ 0b0100
-    shra  {rd: reg} => 0b1010 @ 0b0000 @ rd @ 0b0100
-
-    and {rd: reg}, {rs: reg} => 0b1101 @ rs @ rd @ 0b0100
-    or {rd: reg}, {rs: reg} => 0b1110 @ rs @ rd @ 0b0100
-    xor {rd: reg}, {rs: reg} => 0b1111 @ rs @ rd @ 0b0100
+    nop {val: u8} => val @ 0b0000_0000 ;
+    nop => asm {
+        nop 0
+    }
     
-    cmp {rd: reg}, {rs: reg} => 0b0010 @ rs @ 0b1 @ rd`3 @ 0b0100
-    test {rd: reg}, {rs: reg} => 0b1101 @ rs @ 0b1 @ rd`3 @ 0b0100
+    ldi {rd: u4}, {val: i8} => {
+        assert(rd >=  0)
+        assert(rd <=  3)
+        
+        val @       rd`2@ 0b00_0001
+    }
+    
+    ldi {rd: u4}, {val: i8} => {
+        assert(rd >=  4)
+        assert(rd <=  7)
+        
+        val @       rd`2@ 0b01_0111
+    }
+    
+    ldi {rd: u4}, {val: i8} => {
+        assert(rd >=  8)
+        assert(rd <=  11)
+        
+        val @       rd`2@ 0b01_1000
+    }
+    
+    ldi {rd: u4}, {val: i8} => {
+        assert(rd >=  12)
+        assert(rd <=  15)
+        
+        val @       rd`2@ 0b01_1001
+    }
 
-    fswap  {rd: reg} => 0b1100 @ 0b0000 @ rd @ 0b0100
+    mv {rd: u4}, {rs: u4} =>        0b00 @ rs  @ rd  @ 0b00_0010
+    jreli {val: i8} =>  (addr_rel - $)`8 @       rd  @ 0b00_0011
+    jrelr {rs: u4} =>               0b00 @ rs  @ 0`4 @ 0b00_0100
+    jabsr {rs: u4} =>               0b00 @ rs  @ 0`4 @ 0b00_0011
 
+    add {rd: u4}, {rs: u4} =>       0b00 @ rs  @ rd  @ 0b00_0110
+    addc {rd: u4}, {rs: u4} =>      0b00 @ rs  @ rd  @ 0b00_0111
+    sub {rd: u4}, {rs: u4} =>       0b00 @ rs  @ rd  @ 0b00_1000
+    subc {rd: u4}, {rs: u4} =>      0b00 @ rs  @ rd  @ 0b00_1001
+
+    not {rd: u4} =>                 0b00 @ 0`4 @ rd  @ 0b00_1010
+    neg {rd: u4} =>                 0b00 @ 0`4 @ rd  @ 0b00_1011
+    shll {rd: u4} =>                0b00 @ 0`4 @ rd  @ 0b00_1100
+    shlc {rd: u4} =>                0b00 @ 0`4 @ rd  @ 0b00_1101
+    shrl {rd: u4} =>                0b00 @ 0`4 @ rd  @ 0b00_1110
+    shrc {rd: u4} =>                0b00 @ 0`4 @ rd  @ 0b00_1111
+    shra {rd: u4} =>                0b00 @ 0`4 @ rd  @ 0b01_0000
+    and {rd: u4}, {rs: u4} =>       0b00 @ rs  @ rd  @ 0b01_0001
+    or {rd: u4}, {rs: u4} =>        0b00 @ rs  @ rd  @ 0b01_0010
+    xor {rd: u4}, {rs: u4} =>       0b00 @ rs  @ rd  @ 0b01_0011
+
+    cmp {rd: u4}, {rs: u4} =>       0b00 @ rs  @ rd  @ 0b01_0100
+    test {rd: u4}, {rs: u4} =>      0b00 @ rs  @ rd  @ 0b01_0101
+
+    fswap {rd: u4} =>               0b00 @ 0`4 @ rd  @ 0b01_0110
 }
 
 #ruledef ; CPU instructions Conditions movs
 {
-    cmv.true {rd: reg}, {rs: reg}  => 0b0000 @ 0b1 @ rs`3 @ rd @ 0b0100
-    cmv.false {rd: reg}, {rs: reg} => 0b0001 @ 0b1 @ rs`3 @ rd @ 0b0100
+    cmv.true {rd: u4}, {rs: u4}  => 0b00 @ rs  @ rd  @ 0b10_0000
+    cmv.false {rd: u4}, {rs: u4} => 0b00 @ rs  @ rd  @ 0b10_0001
 
-    cmv.c {rd: reg}, {rs: reg} => 0b0010 @ 0b1 @ rs`3 @ rd @ 0b0100
-    cmv.nc {rd: reg}, {rs: reg} => 0b0011 @ 0b1 @ rs`3 @ rd @ 0b0100
-    cmv.z {rd: reg}, {rs: reg} => 0b0100 @ 0b1 @ rs`3 @ rd @ 0b0100
-    cmv.nz {rd: reg}, {rs: reg} => 0b0101 @ 0b1 @ rs`3 @ rd @ 0b0100
-    cmv.s {rd: reg}, {rs: reg} => 0b0110 @ 0b1 @ rs`3 @ rd @ 0b0100
-    cmv.ns {rd: reg}, {rs: reg} => 0b0111 @ 0b1 @ rs`3 @ rd @ 0b0100
-    cmv.o {rd: reg}, {rs: reg}  => 0b1000 @ 0b1 @ rs`3 @ rd @ 0b0100
+    cmv.c {rd: u4}, {rs: u4} =>     0b00 @ rs  @ rd  @ 0b10_0010
+    cmv.nc {rd: u4}, {rs: u4} =>    0b00 @ rs  @ rd  @ 0b10_0011
+    cmv.z {rd: u4}, {rs: u4} =>     0b00 @ rs  @ rd  @ 0b10_0100
+    cmv.nz {rd: u4}, {rs: u4} =>    0b00 @ rs  @ rd  @ 0b10_0101
+    cmv.s {rd: u4}, {rs: u4} =>     0b00 @ rs  @ rd  @ 0b10_0110
+    cmv.ns {rd: u4}, {rs: u4} =>    0b00 @ rs  @ rd  @ 0b10_0111
+    cmv.o {rd: u4}, {rs: u4} =>     0b00 @ rs  @ rd  @ 0b10_1000
+    cmv.no {rd: u4}, {rs: u4} =>    0b00 @ rs  @ rd  @ 0b10_1001
 
-    cmv.no {rd: reg}, {rs: reg} => 0b1001 @ 0b1 @ rs`3 @ rd @ 0b0100
-    cmv.eq {rd: reg}, {rs: reg} => 0b0100 @ 0b1 @ rs`3 @ rd @ 0b0100
-    cmv.ne {rd: reg}, {rs: reg} => 0b0101 @ 0b1 @ rs`3 @ rd @ 0b0100
+    cmv.eq {rd: u4}, {rs: u4} =>    0b00 @ rs  @ rd  @ 0b10_0100
+    cmv.ne {rd: u4}, {rs: u4} =>    0b00 @ rs  @ rd  @ 0b10_0101
 
-    cmv.uge {rd: reg}, {rs: reg} => 0b0010 @ 0b1 @ rs`3 @ rd @ 0b0100 ; unsigned greater or equal
-    cmv.ult {rd: reg}, {rs: reg} => 0b0011 @ 0b1 @ rs`3 @ rd @ 0b0100 ; unsigned less than
-    cmv.ule {rd: reg}, {rs: reg} => 0b1010 @ 0b1 @ rs`3 @ rd @ 0b0100 ; unsigned less or equal
-    cmv.ugt {rd: reg}, {rs: reg} => 0b1011 @ 0b1 @ rs`3 @ rd @ 0b0100 ; unsigned greater than
+    cmv.uge {rd: u4}, {rs: u4} =>   0b00 @ rs  @ rd  @ 0b10_0010
+    cmv.ult {rd: u4}, {rs: u4} =>   0b00 @ rs  @ rd  @ 0b10_0011
+    cmv.ule {rd: u4}, {rs: u4} =>   0b00 @ rs  @ rd  @ 0b10_1010
+    cmv.ugt {rd: u4}, {rs: u4} =>   0b00 @ rs  @ rd  @ 0b10_1011
 
-    cmv.slt {rd: reg}, {rs: reg} => 0b1100 @ 0b1 @ rs`3 @ rd @ 0b0100 ; signed less than
-    cmv.sge {rd: reg}, {rs: reg} => 0b1101 @ 0b1 @ rs`3 @ rd @ 0b0100 ; signed greater or equal
-    cmv.sle {rd: reg}, {rs: reg} => 0b1110 @ 0b1 @ rs`3 @ rd @ 0b0100 ; signed less or equal
-    cmv.sgt {rd: reg}, {rs: reg} => 0b1111 @ 0b1 @ rs`3 @ rd @ 0b0100 ; signed greater than
+    cmv.sge {rd: u4}, {rs: u4} =>   0b00 @ rs  @ rd  @ 0b10_1101
+    cmv.slt {rd: u4}, {rs: u4} =>   0b00 @ rs  @ rd  @ 0b10_1100
+    cmv.sle {rd: u4}, {rs: u4} =>   0b00 @ rs  @ rd  @ 0b10_1110
+    cmv.sgt {rd: u4}, {rs: u4} =>   0b00 @ rs  @ rd  @ 0b10_1111
+
 }
 
 #ruledef ; Derived CPU instructions
 {
-    cmp {rd: reg} => asm {
+    cmp {rd: u4} => asm {
         cmp {rd}, {rd}
     }
     
-    test {rd: reg} => asm {
+    test {rd: u4} => asm {
         test {rd}, {rd}
     }
 
@@ -93,15 +122,13 @@
     }
 
     zero => asm { ;zero all registers
-        ldi R0, 0
-        ldi R1, 0
-        ldi R2, 0
-        ldi R3, 0
-        ldi R4, 0
-        ldi R5, 0
-        ldi R6, 0
-        fswap R0
-        ldi R0, 0
+        ldi r0, 0
+        mv r1, r0
+        mv r2, r1
+        mv r3, r2
+        mv r4, r3
+        mv r5, r4
+        mv r6, r5
     }
 
     reset => asm { ;reset the CPU to the initial program
@@ -109,4 +136,15 @@
         ldi R1, 0
         jabsr R0
     }
+
+    ; ldi16 {rd: u4}, {val: i16} => {
+    ;     ((val >> 0) & 0xFF)`8 @ ({rd} + 0)`4 @ 0b1000 @
+    ;     ((val >> 8) & 0xFF)`8 @ ({rd} + 1)`4 @ 0b1000
+    ; }
+
+    ldi16 {rd: u4}, {val: i16} => asm {
+        ldi ({rd} + 0), (({val} >> 0) & 0xFF)`8
+        ldi ({rd} + 1), (({val} >> 8) & 0xFF)`8
+    }
+
 }
