@@ -23,6 +23,8 @@ r6 = R6
         nop 0
     }
     
+    ;original ldi, losses 2bits of rd for the immediate value
+    ;this function can only map the first 4 registers
     ldi {rd: u4}, {val: i8} => {
         assert(rd >=  0)
         assert(rd <=  3)
@@ -30,6 +32,7 @@ r6 = R6
         val @       rd`2@ 0b00_0001
     }
     
+    ;this function and the next 2 can map the other registers
     ldi {rd: u4}, {val: i8} => {
         assert(rd >=  4)
         assert(rd <=  7)
@@ -52,9 +55,9 @@ r6 = R6
     }
 
     mv {rd: u4}, {rs: u4} =>        0b00 @ rs  @ rd  @ 0b00_0010
-    jreli {val: i8} =>  (addr_rel - $)`8 @       rd  @ 0b00_0011
+    jreli {val: i8} =>             (val - $)`8 @ 0`2 @ 0b00_0011
     jrelr {rs: u4} =>               0b00 @ rs  @ 0`4 @ 0b00_0100
-    jabsr {rs: u4} =>               0b00 @ rs  @ 0`4 @ 0b00_0011
+    jabsr {rs: u4} =>               0b00 @ rs  @ 0`4 @ 0b00_0101
 
     add {rd: u4}, {rs: u4} =>       0b00 @ rs  @ rd  @ 0b00_0110
     addc {rd: u4}, {rs: u4} =>      0b00 @ rs  @ rd  @ 0b00_0111
@@ -76,6 +79,12 @@ r6 = R6
     test {rd: u4}, {rs: u4} =>      0b00 @ rs  @ rd  @ 0b01_0101
 
     fswap {rd: u4} =>               0b00 @ 0`4 @ rd  @ 0b01_0110
+
+    load {rd: u4}, {rs: u4} =>      0b00 @ rs  @ rd  @ 0b01_1110
+    store {rd: u4}, {rs: u4} =>     0b00 @ rs  @ rd  @ 0b01_1111
+
+    mvlpc {rd: u4} =>               0b00 @ 0`4 @ rd  @ 0b01_1100
+    mvupc {rd: u4} =>               0b00 @ 0`4 @ rd  @ 0b01_1101
 }
 
 #ruledef ; CPU instructions Conditions movs
@@ -117,9 +126,7 @@ r6 = R6
         test {rd}, {rd}
     }
 
-    halt => asm {; same as jump to self, "$" is the current address
-        jreli $
-    }
+    halt => 0x00 @ 0`2 @ 0b00_0011
 
     zero => asm { ;zero all registers
         ldi r0, 0

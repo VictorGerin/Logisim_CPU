@@ -1,12 +1,35 @@
 #include "cpu.asm"
 
-ldi r0, 0
-ldi r1, 0
-ldi r2, 0
-ldi r3, 0
-ldi r4, 0
-ldi r5, 0
-ldi r6, 0
+ldi r0, 0x00
+ldi r1, 0x00
+ldi r2, 0x00
+ldi r3, 0x00
+ldi r4, 0x00
+ldi r5, 0x00
+ldi r6, 0x00
+
+
+mvlpc r0
+mvupc r1
+ldi16 r2, 18
+add r0, r2
+addc r1, r3
+ldi16 r2, teste
+jabsr r2
+halt
+
+#addr 0x0200 - 2
+teste:
+ldi16 r2, 1
+store r0, r5
+add r5, r2
+addc r6, r3
+store r1, r5
+
+
+jabsr r2
+halt
+
 
 ; zero
 ; goToVectorTable:

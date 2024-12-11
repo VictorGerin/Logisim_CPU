@@ -4,7 +4,8 @@
 
 
 Because my implementation overlaps imm values with rd addr
-4 differents structions is used to generate the upper 2bits of RD register
+4 differents instructions is used to generate the upper 2bits of RD register
+with this approach i losse 3 instructions map but i can fully carry a 8bit imm
 
 01 |    ldi0 rd, imm			|	iiiiiiii dd000001
 44 |    ldi1 rd, imm			|	iiiiiiii dd010111
@@ -60,3 +61,14 @@ Because my implementation overlaps imm values with rd addr
 41 |    cmv.slt rd, rs    	        |	--ssssdd dd101100
 42 |    cmv.sle rd, rs    	        |	--ssssdd dd101110
 43 |    cmv.sgt rd, rs    	        |	--ssssdd dd101111
+
+load and store rd, on memory using rs16 address
+47 |    load  rd, rs16			|	--ssssdd dd011110
+48 |    store rd, rs16			|	--ssssdd dd011111
+
+copy upper and lower byte of pc to RD
+when performe any move pc the current upper byte will be store
+so executing mvlpc than after mvupc will store the addres of mvlpc
+doing mvupc first may cause side efects and bugs 
+49 |    mvupc rd 			|	------dd dd011101
+50 |    mvlpc rd 			|	------dd dd011100
