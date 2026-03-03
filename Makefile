@@ -7,7 +7,7 @@ XGPRO_LOGIC := Progs/xgpro-logic/build/xgpro-logic.exe
 
 # Only .txt under Circuits/ that have a matching .json in the same directory
 # (Python used so this works on Windows where shell find is not Unix find)
-VALID_TXT := $(shell python -c "import os; [print(os.path.normpath(os.path.join(r,f)).replace(os.sep,'/')) for r,d,fs in os.walk('Circuits') for f in fs if f.endswith('.txt') and os.path.isfile(os.path.join(r,f[:-4]+'.json'))]")
+VALID_TXT := $(shell python scripts/get_valid_txt.py)
 
 PLD_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).pld)
 JED_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).jed)
