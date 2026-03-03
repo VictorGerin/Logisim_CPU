@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import shlex
 import shutil
@@ -330,6 +331,33 @@ def main(argv: list[str] | None = None) -> int:
         input_path = Path(args.input)
         if not input_path.is_absolute():
             input_path = (Path.cwd() / input_path).resolve()
+
+    # Apply output_splits from config so that outputs with many product terms
+    # are split into _Y0, _Y1, ... and Y = (direct terms) + _Y0 + _Y1 + ...
+    config_path_for_splits = args.pld_config
+    if config_path_for_splits is None and input_path is not None:
+        default_config = input_path.with_suffix(".json")
+        if default_config.is_file():
+            config_path_for_splits = str(default_config)
+    if config_path_for_splits:
+        try:
+            with open(config_path_for_splits, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            output_splits = cfg.get("output_splits") if isinstance(cfg, dict) else None
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            output_splits = None
+    else:
+        output_splits = None
+
+    if output_splits:
+        import split_sop  # type: ignore
+
+        try:
+            equation_blocks = split_sop.apply_output_splits(
+                equation_blocks, output_labels, output_splits, emit_tristate_gnd=False
+            )
+        except (split_sop.InsufficientTermsError, split_sop.ExcessTermsError) as e:
+            raise SystemExit(f"Error: {e}") from e
 
     pld_config_path = args.pld_config
     pld_text = stage_build_pld(
