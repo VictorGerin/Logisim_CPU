@@ -4,48 +4,180 @@ Esse é meu projeto de um processador simples
 
 ----------
 
-### Run minipro on Windows WSL
+### Como usar (Make)
+
+Todo o fluxo de build é feito via **Make**. No Windows os comandos rodam dentro do WSL; em Linux/macOS rodam nativamente.
+
+**Pré-requisitos**
+
+- Windows: [WSL](https://learn.microsoft.com/en-us/windows/wsl/) instalado e configurado.
+- No WSL (ou no sistema, se for Linux/macOS): o Makefile usa `python3` e as ferramentas compiladas em `Progs/`.
+
+**Primeira vez**
+
+Compile as ferramentas (Espresso, Galette, xgpro-logic). O target `build-progs` instala dependências no WSL se necessário (gcc, cargo, go) e compila tudo:
+
+```bash
+make build-progs
+```
+
+**Gerar artefatos**
+
+Coloque em `Circuits/` arquivos de tabela verdade (`.txt`) e config/pinout (`.json`) com o **mesmo nome base** (ex.: `teste.txt` e `teste.json`). Depois:
+
+```bash
+make
+```
+
+ou `make all`. As saídas são geradas em `Gal/`: `.pld`, `.jed`, `.toml`, `.lgc` (e `_plarom.xml` para PLA/ROM).
+
+**Limpar**
+
+- `make clean-gal` — remove o conteúdo de `Gal/`
+- `make clean-progs` — limpa os builds das ferramentas em `Progs/`
+
+**Targets do Makefile**
+
+| Target | Descrição |
+|--------|------------|
+| `all` (default) | Gera .pld, .jed, .toml, .lgc em Gal/ para cada par .txt+.json em Circuits/ |
+| `build-progs` | Instala deps no WSL e compila espresso, galasm, xgpro-logic |
+| `install-deps` | Instala gcc, cargo, go no WSL (chamado por build-progs) |
+| `clean-gal` | Remove conteúdo de Gal/ |
+| `clean-progs` | Limpa builds das ferramentas em Progs/ |
+
+**Pipeline**
+
+O Make usa os scripts Python (`run_pipeline.py` com `eq_to_pld`, `truth_table_to_toml.py`) e as ferramentas em `Progs/` (espresso, galette, xgpro-logic) para transformar cada par `Circuits/<nome>.txt` + `Circuits/<nome>.json` nos arquivos em `Gal/`.
+
+```mermaid
+flowchart LR
+  Circuits["Circuits/*.txt + *.json"]
+  RunPipeline["run_pipeline.py"]
+  PLD["Gal/*.pld, _plarom.xml"]
+  Galette["galette"]
+  JED["Gal/*.jed"]
+  TruthToml["truth_table_to_toml.py"]
+  TOML["Gal/*.toml"]
+  Xgpro["xgpro-logic"]
+  LGC["Gal/*.lgc"]
+  Circuits --> RunPipeline
+  RunPipeline --> PLD
+  PLD --> Galette
+  Galette --> JED
+  Circuits --> TruthToml
+  TruthToml --> TOML
+  TOML --> Xgpro
+  Xgpro --> LGC
+```
+
+----------
+
+### Programar hardware (minipro no WSL)
+
+Para gravar o `.jed` no dispositivo via minipro no Windows, use WSL e usbipd para expor o USB:
 
 https://learn.microsoft.com/en-us/windows/wsl/connect-usb
 
 https://github.com/dorssel/usbipd-win/releases
 
-No windows rode `usbipd list` para pegar o ID do dispositivo USB
-ainda no windows rode `usbipd bind --busid <busid>` para capturar o dispositivo pelo usbipd
-depois `usbipd attach --wsl --busid <busid>` para disponilizar para o WSL
+No Windows rode `usbipd list` para pegar o ID do dispositivo USB
+ainda no Windows rode `usbipd bind --busid <busid>` para capturar o dispositivo pelo usbipd
+depois `usbipd attach --wsl --busid <busid>` para disponibilizar para o WSL
+
+----------
 
 ### Scripts folder
 
-#### all.js
+O fluxo recomendado é via **Make**; os scripts são usados internamente pelo Makefile. Todos os scripts podem ser usados também como **standalone** na linha de comando. No Windows, use `wsl` ou rode dentro do WSL.
 
-Principal script que transforma um truthtable do logisim em uma serie de equações para o galasm
-usando o mesmo nome de variaveis definidas no logisim
+#### run_pipeline.py
 
-#### generate_boolean_eq.js | gen_eq.js
+Orquestra o pipeline completo: tabela verdade do Logisim → PLA → Espresso → equações por bit de saída → geração de `.pld` e opcionalmente `_plarom.xml`. Usa o módulo `eq_to_pld` para aplicar a config em JSON.
 
-Cria Galasm equeção de acordo com a variável map e negate
-Var map:
-    Array que mapeia a coluna para o nome dado no array
+```bash
+# Entrada por arquivo; PLD e PLA-ROM para arquivos (config = <nome>.json no mesmo dir que -i)
+python3 scripts/run_pipeline.py -i Exemplo/teste.txt --pld-out Gal/teste.pld --pla-rom-out Gal/teste_plarom.xml
 
-Negate:
-    Serve para negar todas as entradas (util para quando a entrada está invertida por causa de um pullup)
+# Entrada por stdin; PLD na stdout
+cat Exemplo/teste.txt | python3 scripts/run_pipeline.py --pld-config Exemplo/teste.json --pld-out
 
-#### logisim_truth_to_espresso.js | log_espresso.js
+# Opções úteis: --espresso PATH, -n (negate), --pld-device, --pld-name, --pld-pin N=LABEL, --pld-desc LINE
+python3 scripts/run_pipeline.py --help
+```
 
-Converte logisim truth table numa tabela que o espresso possa executar e executa o mesmo
+#### truth_table_to_toml.py
 
-`cat ./Circuits/Docs/Truth\ table_Complete.txt | node ./scripts/logisim_truth_to_espresso.js`
+Converte tabela verdade (.txt) + pinout (.json) em TOML para o xgpro-logic (vetores de teste).
 
-#### separate_espresso_var.js | split.js
+```bash
+python3 scripts/truth_table_to_toml.py Exemplo/teste.txt Exemplo/teste.json -o Gal/teste.toml
+# Sem -o: grava <nome_da_tabela>.toml no diretório atual
+python3 scripts/truth_table_to_toml.py --help
+```
 
-pega o resultado do espresso e separa a variável de saida indicada pelo index
+#### logisim_to_pla.py
 
-replase_dash_to_x:
-    pode ser usado para trocar '-' pelo x util para gerar PLA no logsim
+Converte tabela verdade do Logisim para o formato PLA do Espresso (entrada para o binário `espresso`). Saída na stdout para encadear no pipeline.
 
-`cat ./Circuits/Docs/Truth\ table_Complete.txt | node ./scripts/logisim_truth_to_espresso.js | node ./scripts/separate_espresso_var.js 0`
+```bash
+# Pipeline: tabela → PLA → espresso → ...
+python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt | ./Progs/espresso-logic/bin/espresso
+
+# Gravar PLA em arquivo (se não for encadear)
+python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt -o pla.txt
+python3 scripts/logisim_to_pla.py --help
+```
+
+#### split.py
+
+Separa a saída do Espresso por índice do bit de saída. Lê PLA na stdin ou de arquivo; imprime apenas as linhas do bit pedido (por padrão troca `-` por `x` para PLA no Logisim).
+
+```bash
+# Pipeline: tabela → PLA → espresso → split (bit 0-based)
+python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt | ./Progs/espresso-logic/bin/espresso | python3 scripts/split.py 0
+
+# Bit 2 (terceiro bit de saída)
+python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt | ./Progs/espresso-logic/bin/espresso | python3 scripts/split.py 2
+
+# Não trocar '-' por 'x'
+python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt | ./Progs/espresso-logic/bin/espresso | python3 scripts/split.py --no-dash-to-x 0
+python3 scripts/split.py --help
+```
+
+#### gen_eq.py
+
+Converte linhas de mintermos (formato Espresso, ex.: `01-1 1`) em uma equação soma-de-produtos. É preciso informar o nome de cada bit de entrada com `-m` (ordem = bit 0, 1, 2, …).
+
+```bash
+# Pipeline completo: tabela → PLA → espresso → split (bit 2) → equação
+python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt | ./Progs/espresso-logic/bin/espresso | python3 scripts/split.py 2 | python3 scripts/gen_eq.py -m A2 -m A1 -m A0 -m B1 -m B0
+
+# Outro bit (0) com negate
+python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt | ./Progs/espresso-logic/bin/espresso | python3 scripts/split.py 0 | python3 scripts/gen_eq.py -m I0 -m I1 -n
+python3 scripts/gen_eq.py --help
+```
+
+#### create_table.py
+
+Gera uma tabela verdade de exemplo (8 entradas, 12 saídas) com lógica fixa (BCD para binário, etc.). Sem argumentos; imprime na stdout no formato `input_bits | output_bits`. Útil para testar o pipeline ou gerar dados de entrada.
+
+```bash
+python3 scripts/create_table.py > Exemplo/exemplo.txt
+```
+
+**Módulos sem CLI**
+
+- **split_sop.py** — Funções para dividir uma equação soma-de-produtos em vários blocos (limite de termos do GAL22V10). Usado como biblioteca pelo `run_pipeline` / `eq_to_pld`.
+- **pla_to_plarom.py** — Converte linhas PLA (Espresso) para o formato Contents do componente PlaRom do Logisim-evolution. Usado como biblioteca pelo `run_pipeline`.
+
+Para o uso normal do repositório, basta rodar `make`; o Makefile define entradas e parâmetros.
+
+----------
 
 ### Prog folder
+
+As ferramentas em `Progs/` são compiladas com **`make build-progs`** e usadas automaticamente pelo Makefile. Para o fluxo normal não é necessário invocá-las manualmente. Abaixo está a documentação de uso manual para referência.
 
 #### xgpro-logic
 
@@ -53,7 +185,7 @@ Programa usado para converter .toml, .json ou .xml em um formato que possa ser i
 
 #### Galasm
 
-Programa usado par a "Compilar" programas pld (gal) para gerar .jed
+Programa usado para "Compilar" programas pld (gal) para gerar .jed
 
 o resultado .jed é usado diretamente no Xgpro (programador universal)
 
