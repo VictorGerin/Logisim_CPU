@@ -1,0 +1,29 @@
+# Compilação e binários das ferramentas em Progs/
+Progs/espresso-logic/bin/
+Progs/espresso-logic/espresso-src/espresso
+Progs/espresso-logic/espresso-src/espresso.exe
+Progs/xgpro-logic/build/
+Progs/xgpro-logic/xgpro-logic
+Progs/xgpro-logic/xgpro-logic.exe
+Progs/minipro/minipro
+Progs/minipro/minipro.exe
+Progs/minipro/minipro-hex
+Progs/minipro/minipro-hex.exe
+Progs/galasm/target/
+
+# Outros arquivos de build comuns
+**/node_modules/
+**/__pycache__/
+*.exe
+*.o
+*.a
+*.so
+*.dylib
+*.bin
+*.hex
+
+# Logs e arquivos temporários
+*.log
+.DS_Store
+Thumbs.db
+Gal/*
