@@ -1,0 +1,2 @@
+# Logisim PLA program table
+0000000100 10

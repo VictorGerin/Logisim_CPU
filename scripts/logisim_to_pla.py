@@ -21,6 +21,7 @@ def parse_spec(spec):
     """
     Parse a column spec like 'A[2..0]' or 'Nome' (single bit).
     Returns list of (bit_count, labels) e.g. (3, ['A2','A1','A0']) or (1, ['Nome']).
+    For single-bit (one bit), uses the name alone: A[0..0] -> ['A'], 'A B | S' -> ['A'], ['B'], ['S'].
     """
     spec = spec.strip()
     m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\[(\d+)\.\.(\d+)\]$", spec)
@@ -29,9 +30,12 @@ def parse_spec(spec):
         if high < low:
             high, low = low, high
         n = high - low + 1
-        labels = [f"{name}{i}" for i in range(high, low - 1, -1)]
+        if n == 1:
+            labels = [name]
+        else:
+            labels = [f"{name}{i}" for i in range(high, low - 1, -1)]
         return n, labels
-    # single bit
+    # single bit (e.g. "A", "B", "S")
     if spec:
         return 1, [spec]
     return 0, []
