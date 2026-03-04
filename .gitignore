@@ -27,3 +27,4 @@ Progs/galasm/target/
 .DS_Store
 Thumbs.db
 Gal/*
+**/__pycache__
