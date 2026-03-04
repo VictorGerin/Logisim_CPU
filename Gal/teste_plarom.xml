@@ -1,8 +1,0 @@
-    <comp lib="10" loc="(430,290)" name="PlaRom">
-      <a name="Contents" val="2 2 1 "/>
-      <a name="and" val="1"/>
-      <a name="inputs" val="2"/>
-      <a name="label" val="rom"/>
-      <a name="outputs" val="1"/>
-    </comp>
-
