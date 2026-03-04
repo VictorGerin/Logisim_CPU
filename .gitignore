@@ -26,3 +26,4 @@ Progs/galasm/target/
 *.log
 .DS_Store
 Thumbs.db
+Gal/*
