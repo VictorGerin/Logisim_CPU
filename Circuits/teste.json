@@ -3,12 +3,12 @@
   "name": "Somador3bit",
   "vcc": 5,
   "pins": {
-    "1": "A2",
-    "2": "A1",
-    "3": "A0",
-    "4": "B2",
-    "5": "B1",
-    "6": "B0",
+    "1": "NC",
+    "2": "A",
+    "3": "B",
+    "4": "NC",
+    "5": "NC",
+    "6": "NC",
     "7": "NC",
     "8": "NC",
     "9": "NC",
@@ -16,17 +16,25 @@
     "11": "NC",
     "12": "GND",
     "13": "NC",
-    "14": "S3",
+    "14": "NC",
     "15": "NC",
-    "16": "S1",
-    "17": "S0",
+    "16": "C",
+    "17": "NC",
     "18": "NC",
-    "19": "S2",
+    "19": "NC",
     "20": "NC",
     "21": "NC",
     "22": "NC",
     "23": "NC",
     "24": "VCC"
+  },
+  "output_splits": {
+    "Y": [
+      { "pin": 15, "label": "Y0", "max_terms": 8 },
+      { "pin": 16, "label": "Y1", "max_terms": 10 },
+      { "pin": 17, "label": "Y2", "max_terms": 10 },
+      { "pin": 18, "label": "Y", "max_terms": 14 }
+    ]
   },
   "description": [
     "Config gerado a partir de Circuits/teste.txt",

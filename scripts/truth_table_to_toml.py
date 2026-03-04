@@ -21,13 +21,19 @@ def _strip_comment(line: str) -> str:
 
 
 def _parse_header_token(token: str) -> list[str]:
-    """Parse a single column token like 'A[2..0]' or 'B[1..0]' into ordered signal names (MSB first)."""
+    """Parse a single column token like 'A[2..0]', 'B[1..0]', or single-bit 'A', 'B' into ordered signal names (MSB first).
+    Single-bit: 'A', 'B' or 'A[0..0]', 'B[0..0]' → returns [name] only (e.g. ['A'], ['B'])."""
     token = token.strip()
     if not token:
         return []
     m = re.match(r"(\w+)\[(\d+)\.\.(\d+)\]", token)
     if m:
         name, hi, lo = m.group(1), int(m.group(2)), int(m.group(3))
+        if hi < lo:
+            hi, lo = lo, hi
+        n = hi - lo + 1
+        if n == 1:
+            return [name]
         return [f"{name}{i}" for i in range(hi, lo - 1, -1)]
     return [token]
 
@@ -94,14 +100,14 @@ def parse_truth_table(path: Path) -> tuple[list[str], list[str], list[dict[str, 
         line = _strip_comment(raw)
         if not line:
             continue
-        if "|" in line and ".." in line and header_line is None:
+        if "|" in line and header_line is None:
             header_line = line
             continue
         if header_line is not None and set(line.strip()).issubset(set("~")):
             separator_idx = i
             break
     if header_line is None:
-        raise ValueError("Could not find header line (expected a line with '|' and notation like [2..0])")
+        raise ValueError("Could not find header line (expected a line with '|' separating inputs and outputs)")
     if separator_idx is None:
         raise ValueError("Could not find separator line (expected a line of '~' after the header)")
     input_signals, output_signals = parse_header(header_line)

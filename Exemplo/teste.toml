@@ -1,7 +1,0 @@
-[[ics]]
-name = "Somador3bit"
-pins = 24
-vcc = 5
-vectors = [
-  "00000XXXXXXGXLLLXXXXXXXV",
-]
