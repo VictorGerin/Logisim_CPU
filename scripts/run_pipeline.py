@@ -207,12 +207,15 @@ def stage_build_pld(
 
     equations_text = "\n\n".join(equation_blocks) + "\n" if equation_blocks else ""
 
-    device, name, pins, desc_lines = eq_to_pld.load_pld_config(
+    device, name, pins, desc_lines, registered_outputs = eq_to_pld.load_pld_config(
         device_arg=pld_device,
         name_arg=pld_name,
         pin_args=pld_pin,
         desc_args=pld_desc,
         config_path=config_path,
+    )
+    equations_text = eq_to_pld.apply_registered_suffix(
+        equations_text, registered_outputs
     )
     return eq_to_pld.render_pld(
         equations_text=equations_text,

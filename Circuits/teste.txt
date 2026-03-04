@@ -13,7 +13,7 @@
 # * You can use binary (e.g., '10100011xxxx') notation or
 #   or hex (e.g., 'C3x'). Logisim will figure out which is which.
 
- A C | C
+ A C | /C
 ~~~~~~~~~~~~~~
 0 0  | 0
 0 1  | 0

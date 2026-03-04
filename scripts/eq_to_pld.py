@@ -3,11 +3,11 @@
 """
 Generate a GALASM-compatible .pld file from a block of equations.
 
-The script is intentionally dumb about the equation text: it simply
-copies whatever it receives (typically the output of run_pipeline.py)
-into the logic section of the .pld file.
+The script copies equation text into the logic section of the .pld file.
+When "registered_outputs" is set in the config, the LHS of those equations
+gets the .R suffix (e.g. O0.R = ..., /O4.R = ...) for GALASM registered outputs.
 
-Configuration (device, name, pins, description) can come from:
+Configuration (device, name, pins, description, registered_outputs) can come from:
   - a JSON config file (--config), and/or
   - CLI overrides (device/name/pins/description).
 
@@ -21,19 +21,24 @@ JSON schema (example):
       ...
       "24": "VCC"
     },
+    "registered_outputs": ["O0", "O1", ...],
     "description": [
       "Somador de 3 bits com Carry Out",
       "Out[3:0] = A[2:0] + B[2:0]"
     ]
   }
+
+  registered_outputs: optional list of output names that are registered; in the
+  .pld file the LHS of those equations receives the suffix .R (e.g. O0 -> O0.R).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
-from typing import Iterable, List, Mapping, Sequence, Tuple
+from typing import Iterable, List, Mapping, Sequence, Set, Tuple
 
 
 def _parse_pin_arg(arg: str) -> Tuple[int, str]:
@@ -82,10 +87,13 @@ def load_pld_config(
     pin_args: Sequence[str],
     desc_args: Sequence[str],
     config_path: str | None,
-) -> Tuple[str, str, List[str], List[str]]:
+) -> Tuple[str, str, List[str], List[str], Set[str]]:
     """
     Merge JSON config (if any) with CLI overrides and return:
-      (device, name, pins_list, description_lines)
+      (device, name, pins_list, description_lines, registered_outputs)
+
+    registered_outputs is a set of output names that should get the .R suffix
+    in the equation LHS (empty set if not in config).
 
     Precedence rules:
       - Start from JSON (if provided)
@@ -98,6 +106,7 @@ def load_pld_config(
     name: str | None = None
     pins_map: dict[int, str] = {}
     desc_from_config = None
+    registered_outputs: Set[str] = set()
 
     if config_path:
         try:
@@ -129,6 +138,12 @@ def load_pld_config(
                     pins_map[pin_num] = str(v)
             if "description" in cfg:
                 desc_from_config = cfg["description"]
+            if "registered_outputs" in cfg:
+                ro = cfg["registered_outputs"]
+                if isinstance(ro, (list, tuple)):
+                    registered_outputs = {str(x) for x in ro}
+                else:
+                    registered_outputs = set()
         else:
             raise SystemExit(f"Error: config root must be a JSON object, got {type(cfg).__name__}")
 
@@ -158,7 +173,36 @@ def load_pld_config(
         )
 
     pins_list = [pins_map[i] for i in range(1, 25)]
-    return device, name, pins_list, desc_lines
+    return device, name, pins_list, desc_lines, registered_outputs
+
+
+# LHS pattern: optional /, output name, optional .R, then = and RHS
+_LHS_PATTERN = re.compile(r"^(/?)(\w+)(\.R)?\s*=")
+
+
+def apply_registered_suffix(
+    equations_text: str,
+    registered_outputs: Set[str] | None,
+) -> str:
+    """
+    Add .R suffix to the LHS of equations whose output name is in registered_outputs.
+
+    Processes line by line. Lines matching "[/]Name[.R]? =" get LHS rewritten to
+    "[/]Name.R =" when Name is in registered_outputs and .R is not already present.
+    """
+    if not registered_outputs:
+        return equations_text
+    out: List[str] = []
+    for line in equations_text.splitlines():
+        m = _LHS_PATTERN.match(line)
+        if m:
+            slash, name, dot_r = m.group(1), m.group(2), m.group(3)
+            if name in registered_outputs and not dot_r:
+                rest = line[m.end() :]
+                out.append(f"{slash}{name}.R ={rest}")
+                continue
+        out.append(line)
+    return "\n".join(out)
 
 
 def render_pld(
@@ -282,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    device, name, pins, desc_lines = load_pld_config(
+    device, name, pins, desc_lines, registered_outputs = load_pld_config(
         device_arg=args.device,
         name_arg=args.name,
         pin_args=args.pin,
@@ -301,6 +345,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"Error: input file not found: {args.input}")
         except OSError as e:
             raise SystemExit(f"Error reading input file {args.input}: {e}")
+
+    equations_text = apply_registered_suffix(equations_text, registered_outputs)
 
     pld_text = render_pld(
         equations_text=equations_text,

@@ -28,14 +28,7 @@
     "23": "NC",
     "24": "VCC"
   },
-  "output_splits": {
-    "Y": [
-      { "pin": 15, "label": "Y0", "max_terms": 8 },
-      { "pin": 16, "label": "Y1", "max_terms": 10 },
-      { "pin": 17, "label": "Y2", "max_terms": 10 },
-      { "pin": 18, "label": "Y", "max_terms": 14 }
-    ]
-  },
+  "registered_outputs": ["C"],
   "description": [
     "Config gerado a partir de Circuits/teste.txt",
     "Somador: S[2:0] = A[2:0] + B[1:0]"
