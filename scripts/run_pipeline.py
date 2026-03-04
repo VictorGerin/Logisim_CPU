@@ -283,6 +283,14 @@ def main(argv: list[str] | None = None) -> int:
         metavar="LINE",
         help="Description line (DESCRIPTION section in .pld). Overrides description from config when provided.",
     )
+    parser.add_argument(
+        "--pla-rom-out",
+        nargs="?",
+        const="stdout",
+        default=None,
+        metavar="FILE",
+        help="Output Logisim-evolution PlaRom XML: no arg or FILE=stdout prints to stdout; otherwise write to FILE.",
+    )
     args = parser.parse_args(argv)
 
     repo_root = _repo_root()
@@ -297,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
         import split  # type: ignore
         import gen_eq  # type: ignore
         import eq_to_pld  # type: ignore
+        import pla_to_plarom  # type: ignore
     except Exception as e:
         raise SystemExit(f"Error: failed to import pipeline modules: {e}") from e
 
@@ -320,6 +329,20 @@ def main(argv: list[str] | None = None) -> int:
     equation_blocks = stage_equations_from_pla(
         pla_lines, input_labels, output_labels, negate=args.negate
     )
+
+    if args.pla_rom_out is not None:
+        try:
+            attrs = pla_to_plarom.plarom_attrs(pla_lines)
+            plarom_xml = pla_to_plarom.render_plarom_xml(attrs)
+            if args.pla_rom_out == "stdout":
+                sys.stdout.write(plarom_xml + "\n")
+            else:
+                out_path = Path(args.pla_rom_out)
+                if not out_path.is_absolute():
+                    out_path = (Path.cwd() / out_path).resolve()
+                out_path.write_text(plarom_xml + "\n", encoding="utf-8")
+        except (ValueError, OSError) as e:
+            raise SystemExit(f"Error: PlaRom output failed: {e}") from e
 
     if args.pld_out is None:
         for block in equation_blocks:

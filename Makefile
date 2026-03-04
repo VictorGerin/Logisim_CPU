@@ -15,9 +15,9 @@ TOML_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).toml)
 LGC_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).lgc)
 
 define RULE_PLD
-Gal/$(basename $(notdir $(1))).pld: $(1) $(1:.txt=.json) $(SCRIPTS_PY)
+Gal/$(basename $(notdir $(1))).pld Gal/$(basename $(notdir $(1)))_plarom.xml: $(1) $(1:.txt=.json) $(SCRIPTS_PY)
 	mkdir -p Gal
-	python3 scripts/run_pipeline.py -i $$< --pld-config $(1:.txt=.json) --pld-out $$@
+	python3 scripts/run_pipeline.py -i $$< --pld-config $(1:.txt=.json) --pld-out Gal/$(basename $(notdir $(1))).pld --pla-rom-out Gal/$(basename $(notdir $(1)))_plarom.xml > /dev/null
 endef
 
 define RULE_JED
