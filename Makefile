@@ -1,5 +1,5 @@
 # Pipeline: Circuits/*.txt (with same-dir *.json) -> Gal/*.pld, Gal/*.jed,
-#            Gal/*.toml (vetores de teste), Gal/*.lgc (Xgpro).
+#            Gal/*.toml (vetores de teste), Gal/*.lgc (Xgpro), Gal/*.pla.
 # Dependencies: all scripts/*.py
 
 SCRIPTS_PY := $(wildcard scripts/*.py)
@@ -25,6 +25,7 @@ PLD_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).pld)
 JED_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).jed)
 TOML_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).toml)
 LGC_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).lgc)
+PLA_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).txt)
 
 define RULE_PLD
 Gal/$(basename $(notdir $(1))).pld Gal/$(basename $(notdir $(1)))_plarom.xml: $(1) $(1:.txt=.json) $(SCRIPTS_PY)
@@ -50,12 +51,19 @@ Gal/$(basename $(notdir $(1))).lgc: Gal/$(basename $(notdir $(1))).toml
 	$(XGPRO_LOGIC) lgc $$< $$@
 endef
 
+define RULE_PLA
+Gal/$(basename $(notdir $(1))).txt: $(1) scripts/truth_table_to_pla.py
+	$(RUN_WSL) mkdir -p Gal
+	$(RUN_WSL) python3 scripts/truth_table_to_pla.py $(1) --use-x --out-pla $$@
+endef
+
 $(foreach t, $(VALID_TXT), $(eval $(call RULE_PLD,$t)))
 $(foreach t, $(PLD_TARGETS), $(eval $(call RULE_JED,$t)))
 $(foreach t, $(VALID_TXT), $(eval $(call RULE_TOML,$t)))
 $(foreach t, $(VALID_TXT), $(eval $(call RULE_LGC,$t)))
+$(foreach t, $(VALID_TXT), $(eval $(call RULE_PLA,$t)))
 
-all: $(PLD_TARGETS) $(JED_TARGETS) $(TOML_TARGETS) $(LGC_TARGETS)
+all: $(PLD_TARGETS) $(JED_TARGETS) $(TOML_TARGETS) $(LGC_TARGETS) $(PLA_TARGETS)
 
 # --- Build Progs (Executado sempre dentro do WSL) ---
 

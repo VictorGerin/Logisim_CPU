@@ -1,0 +1,34 @@
+{
+    "device": "GAL22V10",
+    "name": "ALU_InstructionDecode",
+    "vcc": 5,
+    "pins": {
+      "1": "NC",
+      "2": "opcode5",
+      "3": "opcode4",
+      "4": "opcode3",
+      "5": "opcode2",
+      "6": "opcode1",
+      "7": "opcode0",
+      "8": "NC",
+      "9": "NC",
+      "10": "NC",
+      "11": "NC",
+      "12": "GND",
+      "13": "NC",
+      "14": "pcVal1",
+      "15": "pcVal0",
+      "16": "AluOp5",
+      "17": "AluOp4",
+      "18": "AluOp3",
+      "19": "AluOp2",
+      "20": "AluOp1",
+      "21": "AluOp0",
+      "22": "NC",
+      "23": "NC",
+      "24": "VCC"
+    },
+    "description": [
+    ]
+  }
+  

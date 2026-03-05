@@ -129,6 +129,25 @@ python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt -o pla.txt
 python3 scripts/logisim_to_pla.py --help
 ```
 
+#### truth_table_to_pla.py
+
+Converte tabela verdade do Logisim para **um único** PLA com todos os bits de entrada e de saída por termo (interpretável pelo componente PLA). Por defeito a saída vai para stdout; use `--out-pla` para gravar num ficheiro. Minimiza com Espresso por defeito.
+
+```bash
+# Saída para stdout (encadear no pipeline ou redirecionar)
+python3 scripts/truth_table_to_pla.py Circuits/Docs/InstructionDecoder.txt
+
+# Gravar num ficheiro
+python3 scripts/truth_table_to_pla.py Circuits/Docs/InstructionDecoder.txt --out-pla Circuits/Docs/InstructionDecoder.pla
+
+# Sem minimização (PLA bruto)
+python3 scripts/truth_table_to_pla.py Circuits/Docs/InstructionDecoder.txt --no-minimize --out-pla Circuits/Docs/decoder.pla
+
+# Don't-care como 'x' em vez de '-'
+python3 scripts/truth_table_to_pla.py Circuits/Docs/InstructionDecoder.txt --use-x --out-pla out.pla
+python3 scripts/truth_table_to_pla.py --help
+```
+
 #### split.py
 
 Separa a saída do Espresso por índice do bit de saída. Lê PLA na stdin ou de arquivo; imprime apenas as linhas do bit pedido (por padrão troca `-` por `x` para PLA no Logisim).
