@@ -1,132 +1,129 @@
-.SILENT:
+# Pasta de saída configurável
+BUILD_DIR ?= build
+BUILD_TEMP := $(BUILD_DIR)/temp
 
-# Pipeline: Circuits/*.txt (with same-dir *.json) -> Gal/*.pld, Gal/*.jed,
-#            Gal/*.toml (vetores de teste), Gal/*.lgc (Xgpro), Gal/*.pla.
-# Dependencies: all scripts/*.py
+# Binários das ferramentas
+ESPRESSO    := ./Progs/espresso-logic/bin/espresso
+GALETTE     := ./Progs/galasm/target/release/galette
+XGPRO_LOGIC := ./Progs/xgpro-logic/build/xgpro-logic
 
+# Scripts
 SCRIPTS_PY := $(wildcard scripts/*.py)
 
-# Detecção de Sistema Operacional para rodar TUDO via WSL se estiver no Windows
-ifeq ($(OS),Windows_NT)
-  # Comando base para rodar no WSL preservando o diretório atual
-  RUN_WSL := wsl
-else
-  RUN_WSL :=
-endif
+# Descoberta dinâmica de arquivos
+VALID_TXT_CIRCUITS    := $(shell python3 scripts/discover_targets.py --circuits-txt)
+VALID_TXT_TEMP        := $(shell python3 scripts/discover_targets.py --temp-txt $(BUILD_DIR))
+VALID_TXT             := $(VALID_TXT_CIRCUITS) $(VALID_TXT_TEMP)
 
-# Binários das ferramentas (compilados localmente no WSL)
-ESPRESSO := $(RUN_WSL) ./Progs/espresso-logic/bin/espresso
-GALETTE := $(RUN_WSL) ./Progs/galasm/target/release/galette
-XGPRO_LOGIC := $(RUN_WSL) ./Progs/xgpro-logic/build/xgpro-logic
+CIRCUITS_PY           := $(shell python3 scripts/discover_targets.py --py)
+CIRCUITS_PY_WITH_JSON := $(shell python3 scripts/discover_targets.py --py-with-json)
 
-# Only .txt under Circuits/ that have a matching .json in the same directory
-# Usamos python3 via WSL para garantir consistência no mapeamento de arquivos
-VALID_TXT := $(shell $(RUN_WSL) python3 -c "import os; [print(os.path.normpath(os.path.join(r,f)).replace(os.sep,'/')) for r,d,fs in os.walk('Circuits') for f in fs if f.endswith('.txt') and os.path.isfile(os.path.join(r,f[:-4]+'.json'))]")
+# Definição dos Targets (achatados)
+CIRCUITS_GEN_TXT  := $(foreach py, $(CIRCUITS_PY), $(BUILD_TEMP)/$(basename $(notdir $(py))).txt)
+TEMP_JSON_TARGETS := $(foreach py, $(CIRCUITS_PY_WITH_JSON), $(BUILD_TEMP)/$(basename $(notdir $(py))).json)
 
-# All .py under Circuits/ -> generate same-name .txt in same folder (gen_tables)
-CIRCUITS_PY := $(shell $(RUN_WSL) python3 -c "import os; [print(os.path.normpath(os.path.join(r,f)).replace(os.sep,'/')) for r,d,fs in os.walk('Circuits') for f in fs if f.endswith('.py')]")
-CIRCUITS_GEN_TXT := $(CIRCUITS_PY:.py=.txt)
+PLD_TARGETS  := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).pld)
+JED_TARGETS  := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).jed)
+TOML_TARGETS := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).toml)
+LGC_TARGETS  := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).lgc)
+PLA_TARGETS  := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).txt)
 
-PLD_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).pld)
-JED_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).jed)
-TOML_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).toml)
-LGC_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).lgc)
-PLA_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).txt)
+# ==========================================
+# CONFIGURAÇÃO DE VPATH (Busca em Subpastas)
+# ==========================================
+SRC_DIRS := $(sort $(dir $(CIRCUITS_PY) $(VALID_TXT_CIRCUITS)))
 
-define RULE_PLD
-Gal/$(basename $(notdir $(1))).pld Gal/$(basename $(notdir $(1)))_plarom.xml: $(1) $(1:.txt=.json) $(SCRIPTS_PY)
-	$(RUN_WSL) mkdir -p Gal
-	$(RUN_WSL) python3 scripts/run_pipeline.py -i $$< --pld-config $(1:.txt=.json) --pld-out $$@  --pla-rom-out Gal/$(basename $(notdir $(1)))_plarom.xml
-endef
+# Ensina o Make a procurar os arquivos nessas pastas e na temp
+vpath %.py $(SRC_DIRS)
+vpath %.txt $(SRC_DIRS) $(BUILD_TEMP)
+vpath %.json $(SRC_DIRS) $(BUILD_TEMP)
 
-define RULE_JED
-Gal/$(basename $(notdir $(1))).jed: $(1)
-	$(RUN_WSL) mkdir -p Gal
-	$(GALETTE) -c -f -p $$<
-endef
+# ==========================================
+# ORQUESTRAÇÃO DE MULTI-STEP
+# ==========================================
+.PHONY: all step1 step2
 
-define RULE_TOML
-Gal/$(basename $(notdir $(1))).toml: $(1) $(1:.txt=.json) scripts/truth_table_to_toml.py
-	$(RUN_WSL) mkdir -p Gal
-	python3 scripts/truth_table_to_toml.py $(1) $(1:.txt=.json) -o $$@
-endef
+all: step1
+	@$(MAKE) step2
 
-define RULE_LGC
-Gal/$(basename $(notdir $(1))).lgc: Gal/$(basename $(notdir $(1))).toml
-	mkdir -p Gal
-	$(XGPRO_LOGIC) lgc $$< $$@
-endef
+step1: gen_tables
+step2: all_compile
 
-define RULE_PLA
-Gal/$(basename $(notdir $(1))).txt: $(1) scripts/truth_table_to_pla.py
-	mkdir -p Gal
-	python3 scripts/truth_table_to_pla.py $(1) --use-x --out-pla $$@
-endef
+gen_tables: $(CIRCUITS_GEN_TXT) $(TEMP_JSON_TARGETS)
+all_compile: $(PLD_TARGETS) $(JED_TARGETS) $(TOML_TARGETS) $(LGC_TARGETS) $(PLA_TARGETS)
 
-$(foreach t, $(VALID_TXT), $(eval $(call RULE_PLD,$t)))
-$(foreach t, $(PLD_TARGETS), $(eval $(call RULE_JED,$t)))
-$(foreach t, $(VALID_TXT), $(eval $(call RULE_TOML,$t)))
-$(foreach t, $(VALID_TXT), $(eval $(call RULE_LGC,$t)))
-$(foreach t, $(VALID_TXT), $(eval $(call RULE_PLA,$t)))
+# ==========================================
+# REGRAS DE CRIAÇÃO DE DIRETÓRIOS
+# ==========================================
+$(BUILD_DIR) $(BUILD_TEMP):
+	@mkdir -p $@
 
-# gen_tables: from Circuits/*.py generate Circuits/*.txt (same name, same folder)
-define RULE_GEN_TABLE
-$(1:.py=.txt): $(1) scripts/gen_truth_table.py
-	python3 scripts/gen_truth_table.py -i $(1) -o $(1:.py=.txt) -j12
-endef
-$(foreach py, $(CIRCUITS_PY), $(eval $(call RULE_GEN_TABLE,$(py))))
+# ==========================================
+# ETAPA 1: Geração de Tabelas
+# ==========================================
+$(BUILD_TEMP)/%.txt: %.py | $(BUILD_TEMP)
+	python3 scripts/gen_truth_table.py -i $< -o $@ -j12
 
-gen_tables: $(CIRCUITS_GEN_TXT)
+$(BUILD_TEMP)/%.json: %.json | $(BUILD_TEMP)
+	cp $< $@
 
-all: $(PLD_TARGETS) $(JED_TARGETS) $(TOML_TARGETS) $(LGC_TARGETS) $(PLA_TARGETS)
+# ==========================================
+# ETAPA 2: Compilação (Unificada)
+# ==========================================
+$(BUILD_DIR)/%.pld $(BUILD_DIR)/%_plarom.xml: %.txt %.json $(SCRIPTS_PY) | $(BUILD_DIR)
+	python3 scripts/run_pipeline.py -i $< --pld-config $(filter %.json,$^) --pld-out $(BUILD_DIR)/$*.pld --pla-rom-out $(BUILD_DIR)/$*_plarom.xml
 
-# --- Build Progs (Executado sempre dentro do WSL) ---
+$(BUILD_DIR)/%.toml: %.txt %.json scripts/truth_table_to_toml.py | $(BUILD_DIR)
+	python3 scripts/truth_table_to_toml.py $< $(filter %.json,$^) -o $@
 
+$(BUILD_DIR)/%.txt: %.txt scripts/truth_table_to_pla.py | $(BUILD_DIR)
+	python3 scripts/truth_table_to_pla.py $< --use-x --out-pla $@
 
-install-deps:
-	@echo "Checking for system dependencies in WSL (gcc, cargo, go)..."
-	$(RUN_WSL) sh -c 'if ! which gcc > /dev/null 2>&1 || ! which cargo > /dev/null 2>&1 || ! which go > /dev/null 2>&1; then \
-		echo "Installing missing dependencies..."; \
-		sudo apt-get update && sudo apt-get install -y build-essential cargo golang-go; \
-	else \
-		echo "All dependencies (gcc, cargo, go) are already installed."; \
-	fi;'
+$(BUILD_DIR)/%.jed: $(BUILD_DIR)/%.pld | $(BUILD_DIR)
+	$(GALETTE) -c -f -p $<
 
-	$(MAKE) -C asm install-deps
-
-build-progs: install-deps build-espresso build-galasm build-xgpro-logic
-
-build-espresso:
-	@echo "Building Espresso-logic in WSL..."
-	$(RUN_WSL) sh -c "cd Progs/espresso-logic/espresso-src && make clean && make CFLAGS='-std=gnu89 -w'"
-
-build-galasm:
-	@echo "Building Galasm (Galette) in WSL..."
-	$(RUN_WSL) sh -c "cd Progs/galasm && cargo build --release"
-
-build-xgpro-logic:
-	@echo "Building XGpro-logic in WSL..."
-	$(RUN_WSL) mkdir -p Progs/xgpro-logic/build
-	$(RUN_WSL) sh -c "cd Progs/xgpro-logic && go build -o build/xgpro-logic ./cmd/xgpro-logic.app"
-
-clean-progs:
-	@echo "Cleaning Progs in WSL..."
-	$(RUN_WSL) sh -c "cd Progs/espresso-logic/espresso-src && make clean"
-	$(RUN_WSL) rm -rf Progs/espresso-logic/bin
-	$(RUN_WSL) sh -c "cd Progs/galasm && cargo clean"
-	$(RUN_WSL) rm -rf Progs/xgpro-logic/build
-
-clean-gal:
-	$(RUN_WSL) rm -rf Gal/
-
-.PHONY: all build-progs build-espresso build-galasm build-xgpro-logic install-deps clean-progs clean-gal gen_tables
-
-
-# --- Assembly (customasm) - delega para asm/Makefile ---
+$(BUILD_DIR)/%.lgc: $(BUILD_DIR)/%.toml | $(BUILD_DIR)
+	$(XGPRO_LOGIC) lgc $< $@
+# ==========================================
+# ASSEMBLY E LOGISIM (Delegação para asm/)
+# ==========================================
 asm:
 	$(MAKE) -C asm all
 
 logisim:
 	$(MAKE) -C asm logisim
+	
+# ==========================================
+# REGRAS DOS PROGRAMAS DEPENDENTES
+# ==========================================
+install-deps:
+	@echo "Checking for system dependencies (gcc, cargo, go)..."
+	@if ! command -v gcc > /dev/null 2>&1 || ! command -v cargo > /dev/null 2>&1 || ! command -v go > /dev/null 2>&1; then \
+		echo "Installing missing dependencies..."; \
+		sudo apt-get update && sudo apt-get install -y build-essential cargo golang-go; \
+	else \
+		echo "All dependencies (gcc, cargo, go) are already installed."; \
+	fi
+	$(MAKE) -C asm install-deps
 
-.PHONY: asm logisim8
+build-progs: install-deps build-espresso build-galasm build-xgpro-logic
+
+build-espresso:
+	@echo "Building Espresso-logic..."
+	cd Progs/espresso-logic/espresso-src && $(MAKE) clean && $(MAKE) CFLAGS='-std=gnu89 -w'
+
+build-galasm:
+	@echo "Building Galasm (Galette)..."
+	cd Progs/galasm && cargo build --release
+
+build-xgpro-logic:
+	@echo "Building XGpro-logic..."
+	mkdir -p Progs/xgpro-logic/build
+	cd Progs/xgpro-logic && go build -o build/xgpro-logic ./cmd/xgpro-logic.app
+
+clean-progs:
+	@echo "Cleaning Progs..."
+	cd Progs/espresso-logic/espresso-src && $(MAKE) clean
+	rm -rf Progs/espresso-logic/bin
+	cd Progs/galasm && cargo clean
+	rm -rf Progs/xg

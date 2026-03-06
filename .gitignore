@@ -28,3 +28,4 @@ Progs/galasm/target/
 Thumbs.db
 Gal/*
 **/__pycache__
+build

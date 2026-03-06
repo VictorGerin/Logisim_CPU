@@ -1,21 +1,13 @@
-.SILENT:
-
-# Detecção de Sistema Operacional para rodar via WSL no Windows
-ifeq ($(OS),Windows_NT)
-  RUN_WSL := wsl
-  CUSTOMASM := customasm.exe
-else
-  RUN_WSL :=
-  CUSTOMASM := customasm
-endif
+# customasm: tenta com ou sem .exe (funciona em Linux e Windows sem if OS)
+CUSTOMASM := $(or $(shell command -v customasm 2>/dev/null),$(shell command -v customasm.exe 2>/dev/null),customasm)
 
 install-deps:
 	@echo "Checking for customasm..."
-	$(RUN_WSL) sh -c 'if which $(CUSTOMASM) > /dev/null 2>&1; then \
+	@sh -c 'if command -v $(CUSTOMASM) > /dev/null 2>&1; then \
 		echo "customasm is already installed."; \
 	else \
 		echo "customasm not found. Installing cargo and customasm..."; \
-		if ! which cargo > /dev/null 2>&1; then \
+		if ! command -v cargo > /dev/null 2>&1; then \
 			echo "Installing cargo..."; \
 			sudo apt-get update && sudo apt-get install -y build-essential cargo; \
 		fi; \
@@ -23,11 +15,11 @@ install-deps:
 	fi'
 
 all: main.asm
-	$(RUN_WSL) $(CUSTOMASM) main.asm -o main.bin
+	$(CUSTOMASM) main.asm -o main.bin
 	@echo "Done"
 
 logisim: main.asm
-	$(RUN_WSL) $(CUSTOMASM) main.asm -o main.bin -f logisim8
+	$(CUSTOMASM) main.asm -o main.bin -f logisim8
 	@echo "Done"
 
 .PHONY: all logisim install-deps

@@ -23,49 +23,55 @@ make build-progs
 
 **Gerar artefatos**
 
-Coloque em `Circuits/` arquivos de tabela verdade (`.txt`) e config/pinout (`.json`) com o **mesmo nome base** (ex.: `teste.txt` e `teste.json`). Depois:
+Coloque em `Circuits/` arquivos de tabela verdade (`.txt`) e config/pinout (`.json`) com o **mesmo nome base** (ex.: `teste.txt` e `teste.json`). Scripts Python em `Circuits/` (`.py` com mesmo-nome `.json`) geram tabelas em `build/temp/` e o `.json` é copiado para lá. Depois:
 
 ```bash
 make
 ```
 
-ou `make all`. As saídas são geradas em `Gal/`: `.pld`, `.jed`, `.toml`, `.lgc` (e `_plarom.xml` para PLA/ROM).
+ou `make all`. As saídas são geradas na pasta **configurável** `build/` (default; defina `BUILD_DIR` no Make para outro diretório): `.pld`, `.jed`, `.toml`, `.lgc` (e `_plarom.xml` para PLA/ROM). Tabelas geradas por `.py` ficam em `build/temp/`.
 
 **Limpar**
 
-- `make clean-gal` — remove o conteúdo de `Gal/`
+- `make clean-build` — remove o conteúdo de `build/` (pasta de saída)
+- `make clean-gal` — alias para `clean-build` (compatibilidade)
 - `make clean-progs` — limpa os builds das ferramentas em `Progs/`
 
 **Targets do Makefile**
 
 | Target | Descrição |
 |--------|------------|
-| `all` (default) | Gera .pld, .jed, .toml, .lgc em Gal/ para cada par .txt+.json em Circuits/ |
+| `all` (default) | step1: gera .txt em build/temp a partir de Circuits/*.py e copia .json; step2: gera .pld, .jed, .toml, .lgc em build/ para cada par .txt+.json (Circuits/ e build/temp/) |
 | `build-progs` | Instala deps no WSL e compila espresso, galasm, xgpro-logic |
 | `install-deps` | Instala gcc, cargo, go no WSL (chamado por build-progs) |
-| `clean-gal` | Remove conteúdo de Gal/ |
+| `clean-build` | Remove conteúdo de build/ |
+| `clean-gal` | Alias para clean-build |
 | `clean-progs` | Limpa builds das ferramentas em Progs/ |
 
 **Pipeline**
 
-O Make usa os scripts Python (`run_pipeline.py` com `eq_to_pld`, `truth_table_to_toml.py`) e as ferramentas em `Progs/` (espresso, galette, xgpro-logic) para transformar cada par `Circuits/<nome>.txt` + `Circuits/<nome>.json` nos arquivos em `Gal/`.
+O Make usa os scripts Python (`run_pipeline.py` com `eq_to_pld`, `truth_table_to_toml.py`) e as ferramentas em `Progs/` (espresso, galette, xgpro-logic) para transformar cada par `.txt` + `.json` (em `Circuits/` ou em `build/temp/`) nos arquivos em `build/`.
 
 ```mermaid
 flowchart LR
   Circuits["Circuits/*.txt + *.json"]
+  BuildTemp["build/temp/*.txt + *.json"]
   RunPipeline["run_pipeline.py"]
-  PLD["Gal/*.pld, _plarom.xml"]
+  PLD["build/*.pld, _plarom.xml"]
   Galette["galette"]
-  JED["Gal/*.jed"]
+  JED["build/*.jed"]
   TruthToml["truth_table_to_toml.py"]
-  TOML["Gal/*.toml"]
+  TOML["build/*.toml"]
   Xgpro["xgpro-logic"]
-  LGC["Gal/*.lgc"]
+  LGC["build/*.lgc"]
+  Circuits --> BuildTemp
   Circuits --> RunPipeline
+  BuildTemp --> RunPipeline
   RunPipeline --> PLD
   PLD --> Galette
   Galette --> JED
   Circuits --> TruthToml
+  BuildTemp --> TruthToml
   TruthToml --> TOML
   TOML --> Xgpro
   Xgpro --> LGC
