@@ -1,3 +1,5 @@
+.SILENT:
+
 # Pipeline: Circuits/*.txt (with same-dir *.json) -> Gal/*.pld, Gal/*.jed,
 #            Gal/*.toml (vetores de teste), Gal/*.lgc (Xgpro), Gal/*.pla.
 # Dependencies: all scripts/*.py
@@ -20,6 +22,10 @@ XGPRO_LOGIC := $(RUN_WSL) ./Progs/xgpro-logic/build/xgpro-logic
 # Only .txt under Circuits/ that have a matching .json in the same directory
 # Usamos python3 via WSL para garantir consistência no mapeamento de arquivos
 VALID_TXT := $(shell $(RUN_WSL) python3 -c "import os; [print(os.path.normpath(os.path.join(r,f)).replace(os.sep,'/')) for r,d,fs in os.walk('Circuits') for f in fs if f.endswith('.txt') and os.path.isfile(os.path.join(r,f[:-4]+'.json'))]")
+
+# All .py under Circuits/ -> generate same-name .txt in same folder (gen_tables)
+CIRCUITS_PY := $(shell $(RUN_WSL) python3 -c "import os; [print(os.path.normpath(os.path.join(r,f)).replace(os.sep,'/')) for r,d,fs in os.walk('Circuits') for f in fs if f.endswith('.py')]")
+CIRCUITS_GEN_TXT := $(CIRCUITS_PY:.py=.txt)
 
 PLD_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).pld)
 JED_TARGETS := $(foreach t, $(VALID_TXT), Gal/$(basename $(notdir $(t))).jed)
@@ -63,9 +69,19 @@ $(foreach t, $(VALID_TXT), $(eval $(call RULE_TOML,$t)))
 $(foreach t, $(VALID_TXT), $(eval $(call RULE_LGC,$t)))
 $(foreach t, $(VALID_TXT), $(eval $(call RULE_PLA,$t)))
 
+# gen_tables: from Circuits/*.py generate Circuits/*.txt (same name, same folder)
+define RULE_GEN_TABLE
+$(1:.py=.txt): $(1) scripts/gen_truth_table.py
+	$(RUN_WSL) python3 scripts/gen_truth_table.py -i $(1) -o $(1:.py=.txt)
+endef
+$(foreach py, $(CIRCUITS_PY), $(eval $(call RULE_GEN_TABLE,$(py))))
+
+gen_tables: $(CIRCUITS_GEN_TXT)
+
 all: $(PLD_TARGETS) $(JED_TARGETS) $(TOML_TARGETS) $(LGC_TARGETS) $(PLA_TARGETS)
 
 # --- Build Progs (Executado sempre dentro do WSL) ---
+
 
 install-deps:
 	@echo "Checking for system dependencies in WSL (gcc, cargo, go)..."
@@ -74,7 +90,9 @@ install-deps:
 		sudo apt-get update && sudo apt-get install -y build-essential cargo golang-go; \
 	else \
 		echo "All dependencies (gcc, cargo, go) are already installed."; \
-	fi'
+	fi;'
+
+	$(MAKE) -C asm install-deps
 
 build-progs: install-deps build-espresso build-galasm build-xgpro-logic
 
@@ -101,4 +119,14 @@ clean-progs:
 clean-gal:
 	$(RUN_WSL) rm -rf Gal/
 
-.PHONY: all build-progs build-espresso build-galasm build-xgpro-logic install-deps clean-progs clean-gal
+.PHONY: all build-progs build-espresso build-galasm build-xgpro-logic install-deps clean-progs clean-gal gen_tables
+
+
+# --- Assembly (customasm) - delega para asm/Makefile ---
+asm:
+	$(MAKE) -C asm all
+
+logisim:
+	$(MAKE) -C asm logisim
+
+.PHONY: asm logisim8

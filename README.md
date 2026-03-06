@@ -185,6 +185,22 @@ Gera uma tabela verdade de exemplo (8 entradas, 12 saídas) com lógica fixa (BC
 python3 scripts/create_table.py > Exemplo/exemplo.txt
 ```
 
+#### gen_truth_table.py
+
+Gera tabela verdade no formato Logisim de forma procedural: recebe código Python que define uma classe com `INPUTS`, `OUTPUTS` e o método `compute(**kwargs) -> dict`. Itera sobre todas as combinações de entrada (suporta mais de 32 bits com `int` de precisão arbitrária), escreve em streaming (e em paralelo com `-j N`) e produz um `.txt` importável no Logisim.
+
+```bash
+# Arquivo com a classe
+python3 scripts/gen_truth_table.py -i spec.py -o Circuits/Docs/table.txt
+
+# Entrada por stdin; paralelo com 4 workers
+cat spec.py | python3 scripts/gen_truth_table.py -i - -o table.txt -j 4
+
+# Especificar nome da classe
+python3 scripts/gen_truth_table.py -i spec.py -c Decoder -o table.txt
+python3 scripts/gen_truth_table.py --help
+```
+
 **Módulos sem CLI**
 
 - **split_sop.py** — Funções para dividir uma equação soma-de-produtos em vários blocos (limite de termos do GAL22V10). Usado como biblioteca pelo `run_pipeline` / `eq_to_pld`.

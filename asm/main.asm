@@ -9,25 +9,8 @@ ldi r5, 0x00
 ldi r6, 0x00
 
 
-mvlpc r0
-mvupc r1
-ldi16 r2, 18
-add r0, r2
-addc r1, r3
-ldi16 r2, teste
-jabsr r2
-halt
+ldi r0, 0xff
 
-#addr 0x0200 - 2
-teste:
-ldi16 r2, 1
-store r0, r5
-add r5, r2
-addc r6, r3
-store r1, r5
-
-
-jabsr r2
 halt
 
 
