@@ -1,0 +1,40 @@
+{
+    "device": "GAL22V10",
+    "name": "teste",
+    "vcc": 5,
+    "pins": {
+      "1": "NC",
+      "2": "flagsCarry",
+      "3": "flagsZero",
+      "4": "flagsOutSign",
+      "5": "flagsOverFlow",
+      "6": "AluOp3",
+      "7": "AluOp2",
+      "8": "AluOp1",
+      "9": "AluOp0",
+      "10": "NC",
+      "11": "NC",
+      "12": "GND",
+      "13": "NC",
+      "14": "NC",
+      "15": "condMatch",
+      "16": "NC",
+      "17": "NC",
+      "18": "NC",
+      "19": "NC",
+      "20": "NC",
+      "21": "NC",
+      "22": "condMatch0",
+      "23": "NC",
+      "24": "VCC"
+    },
+    "output_splits": {
+      "condMatch": [
+        { "label": "condMatch0", "max_terms": 10 },
+        { "label": "condMatch", "max_terms": 10 }
+      ]
+    },
+    "description": [
+    ]
+  }
+  

@@ -48,19 +48,19 @@ endef
 define RULE_TOML
 Gal/$(basename $(notdir $(1))).toml: $(1) $(1:.txt=.json) scripts/truth_table_to_toml.py
 	$(RUN_WSL) mkdir -p Gal
-	$(RUN_WSL) python3 scripts/truth_table_to_toml.py $(1) $(1:.txt=.json) -o $$@
+	python3 scripts/truth_table_to_toml.py $(1) $(1:.txt=.json) -o $$@
 endef
 
 define RULE_LGC
 Gal/$(basename $(notdir $(1))).lgc: Gal/$(basename $(notdir $(1))).toml
-	$(RUN_WSL) mkdir -p Gal
+	mkdir -p Gal
 	$(XGPRO_LOGIC) lgc $$< $$@
 endef
 
 define RULE_PLA
 Gal/$(basename $(notdir $(1))).txt: $(1) scripts/truth_table_to_pla.py
-	$(RUN_WSL) mkdir -p Gal
-	$(RUN_WSL) python3 scripts/truth_table_to_pla.py $(1) --use-x --out-pla $$@
+	mkdir -p Gal
+	python3 scripts/truth_table_to_pla.py $(1) --use-x --out-pla $$@
 endef
 
 $(foreach t, $(VALID_TXT), $(eval $(call RULE_PLD,$t)))
@@ -72,7 +72,7 @@ $(foreach t, $(VALID_TXT), $(eval $(call RULE_PLA,$t)))
 # gen_tables: from Circuits/*.py generate Circuits/*.txt (same name, same folder)
 define RULE_GEN_TABLE
 $(1:.py=.txt): $(1) scripts/gen_truth_table.py
-	$(RUN_WSL) python3 scripts/gen_truth_table.py -i $(1) -o $(1:.py=.txt)
+	python3 scripts/gen_truth_table.py -i $(1) -o $(1:.py=.txt) -j12
 endef
 $(foreach py, $(CIRCUITS_PY), $(eval $(call RULE_GEN_TABLE,$(py))))
 
