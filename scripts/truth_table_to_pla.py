@@ -27,12 +27,17 @@ def _repo_root() -> Path:
 
 
 def _pla_data_lines_only(pla_text: str) -> str:
-    """Return only data lines (no .i, .o, .ilb, .ob, .p, .e header)."""
+    """Return only data lines (no .i, .o, .ilb, .ob, .p, .e header).
+    Don't-cares in the output column (- or x) are replaced with 0."""
     lines = []
     for line in pla_text.splitlines():
         s = line.strip()
         if s and not s.startswith("."):
-            lines.append(line.rstrip())
+            parts = s.split()
+            if len(parts) >= 2:
+                output = parts[-1].replace("-", "0").replace("x", "0")
+                line = " ".join(parts[:-1] + [output])
+            lines.append(line)
     return "\n".join(lines) + ("\n" if lines else "")
 
 

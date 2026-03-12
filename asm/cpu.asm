@@ -55,7 +55,7 @@ r6 = R6
     }
 
     mv {rd: u4}, {rs: u4} =>        0b00 @ rs  @ rd  @ 0b00_0010
-    jreli {val: i8} =>             (val - $)`8 @ 0`2 @ 0b00_0011
+    jreli {val: i16} =>             (val - $)`8 @ 0`2 @ 0b00_0011
     jrelr {rs: u4} =>               0b00 @ rs  @ 0`4 @ 0b00_0100
     jabsr {rs: u4} =>               0b00 @ rs  @ 0`4 @ 0b00_0101
 

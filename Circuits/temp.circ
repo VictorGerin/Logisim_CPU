@@ -57,12 +57,11 @@
     <a name="circuit" val="main"/>
     <a name="circuitnamedboxfixedsize" val="true"/>
     <a name="simulationFrequency" val="1000.0"/>
-    <comp lib="11" loc="(430,290)" name="PlaRom">
-      <a name="Contents" val="2 2 1 "/>
-      <a name="and" val="1"/>
-      <a name="inputs" val="2"/>
-      <a name="label" val="rom"/>
-      <a name="outputs" val="1"/>
+    <comp lib="1" loc="(200,90)" name="AND Gate">
+      <a name="size" val="70"/>
     </comp>
+    <wire from="(200,90)" to="(220,90)"/>
+    <wire from="(70,110)" to="(130,110)"/>
+    <wire from="(70,70)" to="(130,70)"/>
   </circuit>
 </project>

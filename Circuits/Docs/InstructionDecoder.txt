@@ -13,6 +13,21 @@
 # * You can use binary (e.g., ‘10100011xxxx’) notation or
 #   or hex (e.g., ‘C3x’). Logisim will figure out which is which.
 
+
+#CounterMode 00 = PC <= PC + 2
+#CounterMode 01 = PC <= PC + RD2
+#CounterMode 10 = PC <= {RD3, RD2}
+#CounterMode 11 = Undefined
+
+#writebackAlu = Enable WriteFlags ALU 
+#op2IsImm = Select Rd2 to be Imm Or RD2 from RegFile
+#enWriteReg1 = Enable write on RegFile
+#smallRd = it's used to indicate the use of LdiCode
+#LdiCode = Changes de registerile selector, to enable high registers
+#--------  it's selects the bits 2 and 3 of the reg index
+#RamOut = use to change the immediate valu to the Ram value
+#RamIn = Enables the ram to Write the RD1 in it
+
 opcode[5..0] | CounterMode[1..0] writebackAlu op2IsImm enWriteReg1 smallRd LdiCode[1..0] RamOut RamIn
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
    000000    |        00              0          -          0         -         --         0      0  
@@ -36,7 +51,7 @@ opcode[5..0] | CounterMode[1..0] writebackAlu op2IsImm enWriteReg1 smallRd LdiCo
    010010    |        00              1          -          1         0         --         0      0  
    010011    |        00              1          -          1         0         --         0      0  
    010100    |        00              1          -          0         0         --         0      0  
-   010101    |        00              1          -          0         0         --         0      0  
+   010101    |        00              1          -          0         0         --         0      0  ; test
    010110    |        00              1          -          1         0         --         0      0  
    010111    |        00              0          1          1         1         01         0      0  
    011000    |        00              0          1          1         1         10         0      0  

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python scripts/pla_to_logisim_sop.py:*)",
+      "Bash(python scripts/truth_table_to_pla.py Circuits/Docs/InstructionDecoder.txt)",
+      "Bash(python -c \":*)"
+    ]
+  }
+}
