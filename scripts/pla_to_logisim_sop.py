@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -104,6 +106,52 @@ class PlaData:
         return sorted(terms, key=lambda t: t[1].index("1"))
 
 
+# ─── Group detection ──────────────────────────────────────────────────────────
+
+def _detect_groups(
+    labels: list[str],
+) -> list[str | tuple[str, list[str]]]:
+    """
+    Detect enumerated labels and group them.
+
+    Returns an ordered list where each element is either:
+      - str                        → individual label
+      - (prefix, [lbl0..lblN-1])  → group of N bits (sorted by numeric suffix)
+
+    Groups are only formed when a prefix has ALL indices 0..N-1 present.
+    """
+    parsed: list[tuple[str, int] | None] = []
+    for lbl in labels:
+        m = re.match(r'^(.*?)(\d+)$', lbl)
+        parsed.append((m.group(1), int(m.group(2))) if m else None)
+
+    groups: dict[str, list[tuple[int, str]]] = defaultdict(list)
+    for lbl, p in zip(labels, parsed):
+        if p:
+            groups[p[0]].append((p[1], lbl))
+
+    valid_groups: dict[str, list[str]] = {}
+    for prefix, items in groups.items():
+        items.sort()
+        if prefix and [idx for idx, _ in items] == list(range(len(items))):
+            valid_groups[prefix] = [lbl for _, lbl in items]
+
+    result: list[str | tuple[str, list[str]]] = []
+    seen: set[str] = set()
+    for lbl in labels:
+        if lbl in seen:
+            continue
+        m = re.match(r'^(.*?)(\d+)$', lbl)
+        if m and m.group(1) in valid_groups:
+            prefix = m.group(1)
+            result.append((prefix, valid_groups[prefix]))
+            seen.update(valid_groups[prefix])
+        else:
+            result.append(lbl)
+            seen.add(lbl)
+    return result
+
+
 # ─── Layout ───────────────────────────────────────────────────────────────────
 
 class Layout:
@@ -130,10 +178,11 @@ class Layout:
     #                      (entrada do NOT está 20 px
     #                       à esquerda do seu output)
     #
-    X_PIN_IN  = 50    # X do output port do componente Pin de entrada
-    X_TUN_POS = 130   # X do tunnel-fonte do sinal positivo  (label = "sig")
-    X_NOT_OUT = 200   # X do output port do gate NOT
-    X_TUN_NEG = 250   # X do tunnel-fonte do sinal negado    (label = "sig_n")
+    X_PIN_IN   = 100    # X do output port do componente Pin de entrada
+    X_SPLIT_IN = 130    # X do bus do Splitter de entrada (para grupos de bits)
+    X_TUN_POS  = 160   # X do tunnel-fonte do sinal positivo  (label = "sig")
+    X_NOT_OUT  = 200   # X do output port do gate NOT
+    X_TUN_NEG  = 250   # X do tunnel-fonte do sinal negado    (label = "sig_n")
 
     # ─── Col B: Árvores de gates AND (uma por produto ativo) ──────────────────
     #
@@ -156,9 +205,21 @@ class Layout:
     #  AND_MIN_STEP: espaço mínimo (px) entre os centros Y de árvores AND
     #  consecutivas. Pode ser aumentado automaticamente para árvores largas.
     #
-    Y_PIN_START  = 100  # Y do primeiro pino de entrada
-    Y_PIN_STEP   = 70   # Distância vertical entre pinos de entrada consecutivos
-    AND_MIN_STEP = 50  # Passo mínimo entre os centros Y de dois produtos AND
+    Y_PIN_START   = 100  # Y do primeiro pino de entrada
+    Y_PIN_STEP    = 70   # Distância vertical entre pinos de entrada consecutivos
+    AND_MIN_STEP  = 50   # Passo mínimo entre os centros Y de dois produtos AND
+    SPLIT_SPACING = 7    # Y_PIN_STEP / 10 → bits do Splitter espaçados 70 px
+
+    # ─── Col C: Splitter de saída (grupos enumerados) ─────────────────────────
+    #
+    #  x_pin_out  x_pin_out+X_SPLIT_OUT_OFFSET  (Splitter bus)  x_mp
+    #      │               │                                      │
+    #   [T src] ······· [T rcv]──wire──►[SPL west]──wire──►[Pin multi-bit]
+    #                                    ←── 20 ──►
+    #                         ←── 50 ───►
+    #                ←────── X_SPLIT_OUT_OFFSET ──►
+    #
+    X_SPLIT_OUT_OFFSET = 400  # distância de x_pin_out ao bus do Splitter de saída
 
     # ─── Parâmetros dos gates ──────────────────────────────────────────────────
     #
@@ -276,17 +337,37 @@ class Xml:
         return cls._comp(0, x, y, "Tunnel", {"facing": facing, "label": label})
 
     @classmethod
-    def pin_in(cls, x: int, y: int, label: str) -> str:
-        return cls._comp(0, x, y, "Pin", {"appearance": "classic", "label": label})
+    def pin_in(cls, x: int, y: int, label: str, width: int = 1) -> str:
+        attrs: dict[str, str] = {"appearance": "classic", "label": label}
+        if width > 1:
+            attrs["width"] = str(width)
+        return cls._comp(0, x, y, "Pin", attrs)
 
     @classmethod
-    def pin_out(cls, x: int, y: int, label: str) -> str:
-        return cls._comp(0, x, y, "Pin", {
+    def pin_out(cls, x: int, y: int, label: str, width: int = 1) -> str:
+        attrs: dict[str, str] = {
             "appearance": "classic",
             "facing": "west",
             "label": label,
             "type": "output",
-        })
+        }
+        if width > 1:
+            attrs["width"] = str(width)
+        return cls._comp(0, x, y, "Pin", attrs)
+
+    @classmethod
+    def splitter(cls, x: int, y: int, fanout: int,
+                 facing: str | None = None, spacing: int = 1,
+                 bit_map: list[int] | None = None) -> str:
+        attrs: dict[str, str] = {"fanout": str(fanout), "incoming": str(fanout)}
+        if facing:
+            attrs["facing"] = facing
+        if spacing != 1:
+            attrs["spacing"] = str(spacing)
+        if bit_map is not None:
+            for i, v in enumerate(bit_map):
+                attrs[f"bit{i}"] = str(v)
+        return cls._comp(0, x, y, "Splitter", attrs)
 
     @classmethod
     def not_gate(cls, x: int, y: int) -> str:
@@ -422,17 +503,53 @@ class SopBuilder:
     def _build_col_a(self) -> None:
         """Input pins, NOT gates, and source tunnels for positive/negated signals."""
         Lo = Layout
-        for i, label in enumerate(self._pla.input_labels):
-            y = Lo.Y_PIN_START + i * Lo.Y_PIN_STEP
-            self._elems.append(Xml.pin_in(Lo.X_PIN_IN, y, label))
-            self._elems.append(Xml.wire(Lo.X_PIN_IN, y, Lo.X_TUN_POS, y))
-            self._elems.append(Xml.wire(Lo.X_TUN_POS, y, Lo.X_TUN_POS, y - 30))
-            self._elems.append(Xml.wire(Lo.X_TUN_POS, y - 30, Lo.X_TUN_POS - 10, y - 30))
-            self._elems.append(Xml.tunnel(Lo.X_TUN_POS - 10, y - 30, label, "east"))
-            self._elems.append(Xml.wire(Lo.X_TUN_POS, y, Lo.X_NOT_OUT - Lo.NOT_DEPTH, y))
-            self._elems.append(Xml.not_gate(Lo.X_NOT_OUT, y))
-            self._elems.append(Xml.wire(Lo.X_NOT_OUT, y, Lo.X_TUN_NEG, y))
-            self._elems.append(Xml.tunnel(Lo.X_TUN_NEG, y, f"{label}_n", "west"))
+        y = Lo.Y_PIN_START
+
+        def _signal_row(label: str, y_row: int, x_start: int) -> None:
+            """Emit wire + pos tunnel + NOT + neg tunnel for one signal bit."""
+            self._elems.append(Xml.wire(x_start, y_row, Lo.X_TUN_POS, y_row))
+            self._elems.append(Xml.wire(Lo.X_TUN_POS, y_row, Lo.X_TUN_POS, y_row - 30))
+            self._elems.append(Xml.wire(Lo.X_TUN_POS, y_row - 30, Lo.X_TUN_POS - 10, y_row - 30))
+            self._elems.append(Xml.tunnel(Lo.X_TUN_POS - 10, y_row - 30, label, "east"))
+            self._elems.append(Xml.wire(Lo.X_TUN_POS, y_row, Lo.X_NOT_OUT - Lo.NOT_DEPTH, y_row))
+            self._elems.append(Xml.not_gate(Lo.X_NOT_OUT, y_row))
+            self._elems.append(Xml.wire(Lo.X_NOT_OUT, y_row, Lo.X_TUN_NEG, y_row))
+            self._elems.append(Xml.tunnel(Lo.X_TUN_NEG, y_row, f"{label}_n", "west"))
+
+        for item in _detect_groups(self._pla.input_labels):
+            if isinstance(item, str):
+                # Individual 1-bit input
+                label = item
+                self._elems.append(Xml.pin_in(Lo.X_PIN_IN, y, label))
+                _signal_row(label, y, Lo.X_PIN_IN)
+                y += Lo.Y_PIN_STEP
+            else:
+                # Grouped input: multi-bit pin + east-facing Splitter
+                prefix, group_labels = item
+                N = len(group_labels)
+                y_first = y
+                # Signal rows in reverse order (MSB at top, LSB at bottom)
+                # Splitter east-facing: bit i at (X_SPLIT_IN+20, y_bus - 70*(i+1))
+                # reversed order maps: j=0 → ctrlN-1 (MSB) at y_first + 0
+                #                      j=N-1 → ctrl0 (LSB) at y_first + (N-1)*70
+                # which matches bit N-1..0 from top to bottom ✓
+                for j, lbl in enumerate(reversed(group_labels)):
+                    y_row = y_first + j * Lo.Y_PIN_STEP
+                    _signal_row(lbl, y_row, Lo.X_SPLIT_IN + 20)
+                # Bus row below the signal rows.
+                # Logisim east-facing Splitter: bit i at (loc.x+20, loc.y - 10 - i*70).
+                # To align bit 0 at y_first+(N-1)*70 we need loc.y = y_first+N*70 - 60.
+                y_bus = y_first + N * Lo.Y_PIN_STEP   # pin_in row
+                y_spl = y_bus - 60                     # Splitter bus loc
+                self._elems.append(Xml.pin_in(Lo.X_PIN_IN, y_bus, prefix, width=N))
+                self._elems.append(Xml.wire(Lo.X_PIN_IN, y_bus, Lo.X_SPLIT_IN, y_bus))
+                self._elems.append(Xml.wire(Lo.X_SPLIT_IN, y_bus, Lo.X_SPLIT_IN, y_spl))
+                self._elems.append(Xml.splitter(
+                    Lo.X_SPLIT_IN, y_spl, N,
+                    spacing=Lo.SPLIT_SPACING,
+                    bit_map=[N - 1 - i for i in range(N)],
+                ))
+                y = y_bus + Lo.Y_PIN_STEP
 
     # ── Layout helpers ────────────────────────────────────────────────────────
 
@@ -523,22 +640,67 @@ class SopBuilder:
             used_y.add(cy)
             or_y.append(cy)
 
-        # Emit OR trees and output pins.
-        for m, label in enumerate(self._pla.output_labels):
-            y_or = or_y[m]
-            contrib = contributing[m]
-            n_contrib = len(contrib)
+        # Emit OR trees and output pins (grouped-aware).
+        label_to_m = {lbl: m for m, lbl in enumerate(self._pla.output_labels)}
 
-            if n_contrib == 0:
-                # No terms produce this output → constant 0.
-                self._elems.append(Xml.constant(x_or - Lo.LEAF_TUN_OFFSET, y_or, 0))
-                self._elems.append(Xml.wire(x_or - Lo.LEAF_TUN_OFFSET, y_or, x_pin_out, y_or))
-                self._elems.append(Xml.pin_out(x_pin_out, y_or, label))
+        for item in _detect_groups(self._pla.output_labels):
+            if isinstance(item, str):
+                # Individual 1-bit output
+                m = label_to_m[item]
+                y_or = or_y[m]
+                contrib = contributing[m]
+                if not contrib:
+                    self._elems.append(Xml.constant(x_or - Lo.LEAF_TUN_OFFSET, y_or, 0))
+                    self._elems.append(Xml.wire(x_or - Lo.LEAF_TUN_OFFSET, y_or, x_pin_out, y_or))
+                    self._elems.append(Xml.pin_out(x_pin_out, y_or, item))
+                else:
+                    GateTree.build(self._elems, Xml.or_gate, [term_tun[j] for j in contrib], x_or, y_or)
+                    self._elems.append(Xml.wire(x_or, y_or, x_pin_out, y_or))
+                    self._elems.append(Xml.pin_out(x_pin_out, y_or, item))
             else:
-                contrib_tuns = [term_tun[j] for j in contrib]
-                GateTree.build(self._elems, Xml.or_gate, contrib_tuns, x_or, y_or)
-                self._elems.append(Xml.wire(x_or, y_or, x_pin_out, y_or))
-                self._elems.append(Xml.pin_out(x_pin_out, y_or, label))
+                # Grouped output: OR outputs → named tunnels → west-facing Splitter
+                # → multi-bit output pin.
+                #
+                # Logisim west-facing Splitter at (x_spl, y_spl):
+                #   bus port  : (x_spl,      y_spl)
+                #   bit i port: (x_spl - 20, y_spl + 10 + i*70)   [spacing=7]
+                prefix, group_labels = item
+                N = len(group_labels)
+                group_indices = [label_to_m[lbl] for lbl in group_labels]
+
+                x_spl = x_pin_out + Lo.X_SPLIT_OUT_OFFSET   # Splitter loc X
+                x_rcv = x_spl - 50                           # receiver tunnel X
+                x_mp  = x_spl + 30                           # multi-bit output pin X
+
+                # Align Splitter so bit 0 lands at min(or_y) of the group.
+                y_spl = min(or_y[m] for m in group_indices) - 10
+
+                # OR tree (or constant) → wire → source tunnel (west-facing)
+                for i, m in enumerate(group_indices):
+                    y_or_m    = or_y[m]
+                    contrib   = contributing[m]
+                    tun_label = f"_go_{group_labels[i]}"
+                    if not contrib:
+                        self._elems.append(Xml.constant(x_or - Lo.LEAF_TUN_OFFSET, y_or_m, 0))
+                        self._elems.append(Xml.wire(x_or - Lo.LEAF_TUN_OFFSET, y_or_m, x_pin_out, y_or_m))
+                    else:
+                        GateTree.build(self._elems, Xml.or_gate,
+                                       [term_tun[j] for j in contrib], x_or, y_or_m)
+                        self._elems.append(Xml.wire(x_or, y_or_m, x_pin_out, y_or_m))
+                    self._elems.append(Xml.tunnel(x_pin_out, y_or_m, tun_label, "west"))
+
+                # Splitter + multi-bit output pin
+                self._elems.append(Xml.splitter(x_spl, y_spl, N,
+                                                facing="west", spacing=Lo.SPLIT_SPACING))
+                self._elems.append(Xml.wire(x_spl, y_spl, x_mp, y_spl))
+                self._elems.append(Xml.pin_out(x_mp, y_spl, prefix, width=N))
+
+                # Receiver tunnels (east-facing) wired to each Splitter bit port
+                for i, lbl in enumerate(group_labels):
+                    tun_label = f"_go_{lbl}"
+                    y_bit = y_spl + 10 + i * Lo.Y_PIN_STEP
+                    self._elems.append(Xml.tunnel(x_rcv, y_bit, tun_label, "east"))
+                    self._elems.append(Xml.wire(x_rcv, y_bit, x_spl - 20, y_bit))
 
 
 # ─── CLI entry point ───────────────────────────────────────────────────────────
