@@ -16,7 +16,8 @@
       "Bash(cd \"C:\\\\Users\\\\victo\\\\OneDrive\\\\Documentos\\\\Logisim_CPU\" && python -c \"\nfrom scripts.pla_to_logisim_sop import GateTree, Xml\n\ndef show\\(label, lits, x=550, y=300\\):\n    print\\(f'--- K={len\\(lits\\)}: {label} ---'\\)\n    elems = []\n    GateTree.build\\(elems, Xml.and_gate, lits, x, y\\)\n    for e in elems: print\\(e\\)\n    print\\(\\)\n\nshow\\('K=0 constant', []\\)\nshow\\('K=1 single literal', ['A']\\)\nshow\\('K=2 gate', ['A', 'B_n']\\)\nshow\\('K=3 tree', ['A', 'B', 'C']\\)\n\")",
       "Bash(python -c \"import xml.etree.ElementTree as ET; ET.parse\\('/tmp/test.circ'\\); print\\('XML valid'\\)\")",
       "Bash(cd \"C:\\\\Users\\\\victo\\\\OneDrive\\\\Documentos\\\\Logisim_CPU\" && python scripts/pla_to_logisim_sop.py build/InstructionDecoder.txt --out-circ test_out.circ 2>&1 && python -c \"import xml.etree.ElementTree as ET; ET.parse\\('test_out.circ'\\); print\\('XML valid'\\)\" && rm test_out.circ)",
-      "Bash(cd \"C:\\\\Users\\\\victo\\\\OneDrive\\\\Documentos\\\\Logisim_CPU\" && printf \".i 2\\\\n.o 1\\\\n.ilb A B\\\\n.ob Y\\\\n11 1\\\\n10 1\\\\n\" | python scripts/pla_to_logisim_sop.py - --circuit-name test 2>&1 | head -3)"
+      "Bash(cd \"C:\\\\Users\\\\victo\\\\OneDrive\\\\Documentos\\\\Logisim_CPU\" && printf \".i 2\\\\n.o 1\\\\n.ilb A B\\\\n.ob Y\\\\n11 1\\\\n10 1\\\\n\" | python scripts/pla_to_logisim_sop.py - --circuit-name test 2>&1 | head -3)",
+      "Bash(python -c \"import scripts.pla_to_logisim_sop\")"
     ]
   }
 }

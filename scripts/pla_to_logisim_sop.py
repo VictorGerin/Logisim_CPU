@@ -95,7 +95,13 @@ class PlaData:
 
     @property
     def active_terms(self) -> list[tuple[str, str]]:
-        return [(i, o) for i, o in self.terms if "1" in o]
+        terms: list[tuple[str, str]] = []
+        for inp, out in self.terms:
+            for m, bit in enumerate(out):
+                if bit == "1":
+                    single = "0" * m + "1" + "0" * (len(out) - m - 1)
+                    terms.append((inp, single))
+        return sorted(terms, key=lambda t: t[1].index("1"))
 
 
 # ─── Layout ───────────────────────────────────────────────────────────────────
@@ -506,8 +512,14 @@ class SopBuilder:
                 cy = sum(and_y[j] for j in contrib) // len(contrib)
             else:
                 cy = y_and_start + m * Lo.AND_MIN_STEP
-            while cy in used_y:
-                cy += 10
+            if cy in used_y:
+                for step in range(10, 100_000, 10):
+                    if cy + step not in used_y:
+                        cy = cy + step
+                        break
+                    if cy - step not in used_y:
+                        cy = cy - step
+                        break
             used_y.add(cy)
             or_y.append(cy)
 
