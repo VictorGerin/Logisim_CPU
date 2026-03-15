@@ -191,8 +191,8 @@ class Layout:
     #    │         │
     #  [AND]──wire►[T "_tj"]   ← tunnel que leva o produto j para a Col C
     #
-    X_AND     = 550   # X do output port da raiz da árvore AND de cada produto
-    X_TUN_AND = 570   # X do tunnel que exporta o sinal do produto para a Col C
+    X_AND     = 700   # X do output port da raiz da árvore AND de cada produto
+    X_TUN_AND = 770   # X do tunnel que exporta o sinal do produto para a Col C
 
     # ─── Espaçamento vertical (eixo Y, cresce para baixo) ─────────────────────
     #
@@ -426,7 +426,7 @@ class GateTree:
 
         elif K == 1:
             # Single literal: receive tunnel placed at the output position.
-            elems.append(Xml.tunnel(x_out, y_out, lits[0], "west"))
+            elems.append(Xml.tunnel(x_out, y_out, lits[0], "east"))
 
         else:
             # Balanced split: root gate + two sub-trees.
