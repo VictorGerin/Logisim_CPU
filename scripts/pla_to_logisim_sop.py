@@ -5,15 +5,15 @@ Convert a minimized PLA (from truth_table_to_pla.py / Espresso) into a
 Logisim-evolution .circ file implementing the Sum of Products (SOP) circuit
 using discrete AND, OR, and NOT gates.
 
-Each product term becomes an AND gate (or a direct wire for single-literal terms).
-Each output bit gets an OR gate collecting all terms that drive it.
-Signals are routed via Logisim Tunnel components to avoid wire-crossing issues
-that would arise from a physical bus layout.
+Each product term becomes an AND gate binary tree (or a direct wire for
+single-literal terms).  Each output bit gets an OR gate binary tree collecting
+all terms that drive it.  Signals are routed via Logisim Tunnel components to
+avoid wire-crossing issues that would arise from a physical bus layout.
 
 Layout (left to right):
   Col A: Input pins + NOT gates, with labelled source tunnels for each signal.
-  Col B: AND gates (one per active product term), stacked vertically.
-  Col C: OR gates (one per output bit) + output pins.
+  Col B: AND gate trees (one per active product term), stacked vertically.
+  Col C: OR gate trees (one per output bit) + output pins.
 
 Usage:
   python scripts/pla_to_logisim_sop.py INPUT.pla --out-circ circuit.circ
@@ -24,188 +24,186 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import math
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
-# ─── Layout constants (Logisim units, grid = 10) ──────────────────────────────
 
-# Col A: input pins and NOT gates
-X_PIN_IN = 50       # Input pin loc x  (facing east → port here)
-X_SRC_TUN = 130     # Source tunnel for positive signal
-X_NOT_OUT = 200     # NOT gate output loc x  (size=20 → input at x-30=200)
-X_NEG_TUN = 250     # Source tunnel for negated signal
+# ─── PlaData ──────────────────────────────────────────────────────────────────
 
-# Col B: AND gates
-X_AND = 550         # AND gate output loc x  (inputs at x-50=500)
-X_AND_IN = 500      # AND gate input ports x  (X_AND - AND_DEPTH)
-X_AND_TUN = 630     # AND-output tunnel loc x
+@dataclass
+class PlaData:
+    input_labels: list[str]
+    output_labels: list[str]
+    terms: list[tuple[str, str]]
 
-# Col C: OR gates and output pins
-X_OR = 800          # OR gate output loc x  (inputs at x-50=750)
-X_OR_IN = 750       # OR gate input ports x  (X_OR - AND_DEPTH)
-X_PIN_OUT = 910     # Output pin loc x  (facing west → port here)
+    @classmethod
+    def parse(cls, lines: list[str]) -> "PlaData":
+        """
+        Parse a PLA file (full PLA with headers, or data-lines-only output from
+        truth_table_to_pla.py).
+        """
+        input_labels: list[str] | None = None
+        output_labels: list[str] | None = None
+        n_inputs: int | None = None
+        n_outputs: int | None = None
+        terms: list[tuple[str, str]] = []
 
-# Vertical layout
-Y_PIN_START = 100   # Y of first input pin
-Y_PIN_STEP = 70     # Vertical spacing between input pins
-Y_AND_EXTRA = 100   # Gap below last input pin before first AND gate row
-AND_MIN_STEP = 60   # Minimum vertical pitch between AND gate centres
+        for raw in lines:
+            s = raw.strip()
+            if not s or s.startswith("#"):
+                continue
+            if s.startswith(".i "):
+                n_inputs = int(s[3:].strip())
+            elif s.startswith(".o "):
+                n_outputs = int(s[3:].strip())
+            elif s.startswith(".ilb "):
+                input_labels = s[5:].split()
+            elif s.startswith(".ob "):
+                output_labels = s[4:].split()
+            elif s.startswith("."):
+                continue  # .p, .e, comments …
+            else:
+                parts = s.split(None, 1)
+                if len(parts) == 2:
+                    terms.append((parts[0], parts[1]))
 
-# Gate parameters
-NOT_SIZE = 20       # <a name="size" val="20"/> for NOT gate
-NOT_DEPTH = 20      # Depth from NOT output to its single input  (size=20)
-GATE_SIZE = 30      # <a name="size" val="30"/> for AND/OR gates
-AND_DEPTH = 50      # Depth from AND/OR output to input row  (size=30)
+        if not terms:
+            raise ValueError("No PLA data lines found in input")
 
+        if n_inputs is None:
+            n_inputs = len(terms[0][0])
+        if n_outputs is None:
+            n_outputs = len(terms[0][1])
+        if input_labels is None:
+            input_labels = [f"in{i}" for i in range(n_inputs)]
+        if output_labels is None:
+            output_labels = [f"out{i}" for i in range(n_outputs)]
 
-# ─── XML helpers ───────────────────────────────────────────────────────────────
+        for inp, out in terms:
+            if len(inp) != n_inputs:
+                raise ValueError(
+                    f"Input pattern width {len(inp)} ≠ {n_inputs}: {inp!r}"
+                )
+            if len(out) != n_outputs:
+                raise ValueError(
+                    f"Output pattern width {len(out)} ≠ {n_outputs}: {out!r}"
+                )
 
-def _esc(val: str) -> str:
-    """Escape characters that are illegal inside an XML attribute value."""
-    return (
-        val.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
+        return cls(input_labels, output_labels, terms)
 
-
-def _loc(x: int, y: int) -> str:
-    return f"({x},{y})"
-
-
-def _comp(lib: int, x: int, y: int, name: str, attrs: dict[str, str] | None = None) -> str:
-    """Render a <comp> XML element with optional <a> child attributes."""
-    parts = [f'  <comp lib="{lib}" loc="{_loc(x, y)}" name="{_esc(name)}">']
-    for k, v in (attrs or {}).items():
-        parts.append(f'    <a name="{_esc(k)}" val="{_esc(v)}"/>')
-    parts.append("  </comp>")
-    return "\n".join(parts)
-
-
-def _wire(x1: int, y1: int, x2: int, y2: int) -> str:
-    return f'  <wire from="{_loc(x1, y1)}" to="{_loc(x2, y2)}"/>'
-
-
-def _tunnel(x: int, y: int, label: str, facing: str = "east") -> str:
-    return _comp(0, x, y, "Tunnel", {"facing": facing, "label": label})
-
-
-def _pin_in(x: int, y: int, label: str) -> str:
-    return _comp(0, x, y, "Pin", {"appearance": "classic", "label": label})
-
-
-def _pin_out(x: int, y: int, label: str) -> str:
-    return _comp(0, x, y, "Pin", {
-        "appearance": "classic",
-        "facing": "west",
-        "label": label,
-        "type": "output",
-    })
+    @property
+    def active_terms(self) -> list[tuple[str, str]]:
+        return [(i, o) for i, o in self.terms if "1" in o]
 
 
-def _not_gate(x: int, y: int) -> str:
-    return _comp(1, x, y, "NOT Gate", {"size": str(NOT_SIZE)})
+# ─── Layout ───────────────────────────────────────────────────────────────────
 
-
-def _and_gate(x: int, y: int, n_inputs: int) -> str:
-    return _comp(1, x, y, "AND Gate", {"inputs": str(n_inputs), "size": str(GATE_SIZE)})
-
-
-def _or_gate(x: int, y: int, n_inputs: int) -> str:
-    return _comp(1, x, y, "OR Gate", {"inputs": str(n_inputs), "size": str(GATE_SIZE)})
-
-
-def _constant(x: int, y: int, value: int) -> str:
-    return _comp(0, x, y, "Constant", {"value": hex(value)})
-
-
-# ─── Gate port geometry ────────────────────────────────────────────────────────
-
-def gate_input_dy(n: int) -> list[int]:
+class Layout:
     """
-    Y offsets (relative to the gate's output loc) for each input port of an
-    n-input AND/OR gate (size=30, facing east).
+    Coordenadas e parâmetros de geometria para posicionar todos os componentes
+    no canvas do Logisim-evolution (eixo X cresce para a direita, Y para baixo).
 
-    Formula: dy[i] = round((i - (n-1)/2) * 10)
-    Examples:
-      n=1 → [0]
-      n=2 → [-5, 5]
-      n=3 → [-10, 0, 10]
-      n=4 → [-15, -5, 5, 15]
+    Visão geral das três colunas do circuito:
+
+      ┌─────────── COL A ──────────────┐  ┌──── COL B ────┐  ┌──── COL C ─────┐
+      │  Pinos + inversores + tunnels  │  │  Árvores AND  │  │  Árvores OR +  │
+      │  para sinal positivo/negado    │  │  por produto  │  │  pinos de saída│
+      └────────────────────────────────┘  └───────────────┘  └────────────────┘
     """
-    return [int(round((i - (n - 1) / 2.0) * 10)) for i in range(n)]
+
+    # ─── Col A: Pinos de entrada e inversores ─────────────────────────────────
+    #
+    #  X_PIN_IN  X_TUN_POS        X_NOT_OUT  X_TUN_NEG
+    #     50        130              200        250
+    #     │          │                │          │
+    #  ──[>]──wire──►[T "sig"]──wire─►[NOT]──wire►[T "sig_n"]
+    #                          ←──────────────►
+    #                             NOT_DEPTH=20
+    #                      (entrada do NOT está 20 px
+    #                       à esquerda do seu output)
+    #
+    X_PIN_IN  = 50    # X do output port do componente Pin de entrada
+    X_TUN_POS = 130   # X do tunnel-fonte do sinal positivo  (label = "sig")
+    X_NOT_OUT = 200   # X do output port do gate NOT
+    X_TUN_NEG = 250   # X do tunnel-fonte do sinal negado    (label = "sig_n")
+
+    # ─── Col B: Árvores de gates AND (uma por produto ativo) ──────────────────
+    #
+    #  X_AND  X_TUN_AND
+    #   550      570
+    #    │         │
+    #  [AND]──wire►[T "_tj"]   ← tunnel que leva o produto j para a Col C
+    #
+    X_AND     = 550   # X do output port da raiz da árvore AND de cada produto
+    X_TUN_AND = 570   # X do tunnel que exporta o sinal do produto para a Col C
+
+    # ─── Espaçamento vertical (eixo Y, cresce para baixo) ─────────────────────
+    #
+    #  Y_PIN_START = 100  ──  in0 [>]
+    #                    ↕  Y_PIN_STEP = 70
+    #                170  ──  in1 [>]
+    #                    ↕  Y_PIN_STEP = 70
+    #                240  ──  in2 [>]  ...
+    #
+    #  AND_MIN_STEP: espaço mínimo (px) entre os centros Y de árvores AND
+    #  consecutivas. Pode ser aumentado automaticamente para árvores largas.
+    #
+    Y_PIN_START  = 100  # Y do primeiro pino de entrada
+    Y_PIN_STEP   = 70   # Distância vertical entre pinos de entrada consecutivos
+    AND_MIN_STEP = 50  # Passo mínimo entre os centros Y de dois produtos AND
+
+    # ─── Parâmetros dos gates ──────────────────────────────────────────────────
+    #
+    #  NOT_SIZE  → atributo Logisim <a name="size" val="20"/> no NOT Gate
+    #  NOT_DEPTH → profundidade do NOT: a porta de entrada fica em
+    #              x = X_NOT_OUT − NOT_DEPTH  (20 px à esquerda do output)
+    #  GATE_SIZE → atributo Logisim <a name="size" val="50"/> nos AND/OR Gates
+    #
+    NOT_SIZE  = 20   # Tamanho do gate NOT  (pixels lógicos do Logisim)
+    NOT_DEPTH = 20   # Distância entre o output do NOT e sua porta de entrada
+    GATE_SIZE = 50   # Tamanho dos gates AND/OR (pixels lógicos do Logisim)
+
+    # ─── Geometria interna das árvores binárias (AND / OR) ────────────────────
+    #
+    #  Cada gate de 2 entradas (facing east) tem o seguinte diagrama de portas:
+    #
+    #   (x_out − GATE_DEPTH,  y_out − GATE_PORT_OFFSET) ──┐
+    #                                                      [GATE]── (x_out, y_out)
+    #   (x_out − GATE_DEPTH,  y_out + GATE_PORT_OFFSET) ──┘
+    #   ←──────────────────────────────────────────────────►
+    #                      GATE_DEPTH = 50
+    #
+    #  Quando uma folha é um literal único, o tunnel receptor é colocado
+    #  LEAF_TUN_OFFSET px antes do output da raiz e ligado por wire até a porta:
+    #
+    #   (x_out − LEAF_TUN_OFFSET, y_port) ──wire──► (x_out − GATE_DEPTH, y_port)
+    #   ←──────────────────────────────────────────►
+    #                  LEAF_TUN_OFFSET = 80
+    #
+    #  Para sub-árvores com mais de um literal, cada nível é recuado
+    #  TREE_X_STEP px à esquerda, e os centroides Y são calculados
+    #  usando TREE_LEAF_SPACING como espaçamento entre folhas:
+    #
+    #   nível 0 (raiz)    nível 1              folhas (tunnels)
+    #     x_out        x_out − TREE_X_STEP   x_out − LEAF_TUN_OFFSET
+    #       │                  │                      │
+    #     [AND] ─────────── [AND] ────────── [T "a"]
+    #                    \─ [AND] ────────── [T "b"]
+    #                               \─────── [T "c"]
+    #
+    GATE_DEPTH        = 50   # Distância horizontal: output do gate → suas portas de entrada
+    GATE_PORT_OFFSET  = 20   # Deslocamento vertical ± de cada porta de entrada
+    TREE_X_STEP       = 70   # Recuo horizontal entre níveis consecutivos da árvore
+    TREE_LEAF_SPACING = 40   # Espaçamento entre folhas para calcular centroides Y
+    LEAF_TUN_OFFSET   = 80   # Distância da raiz até o tunnel de um literal individual
 
 
-# ─── PLA parsing ───────────────────────────────────────────────────────────────
+# ─── Xml ──────────────────────────────────────────────────────────────────────
 
-def parse_pla(lines: list[str]) -> tuple[list[str], list[str], list[tuple[str, str]]]:
-    """
-    Parse a PLA file (full PLA with headers, or data-lines-only output from
-    truth_table_to_pla.py).
-
-    Returns:
-        input_labels  – list of N signal names
-        output_labels – list of M output names
-        terms         – list of (input_pattern, output_pattern) where each
-                        character is '0', '1', or '-'
-    """
-    input_labels: list[str] | None = None
-    output_labels: list[str] | None = None
-    n_inputs: int | None = None
-    n_outputs: int | None = None
-    terms: list[tuple[str, str]] = []
-
-    for raw in lines:
-        s = raw.strip()
-        if not s or s.startswith("#"):
-            continue
-        if s.startswith(".i "):
-            n_inputs = int(s[3:].strip())
-        elif s.startswith(".o "):
-            n_outputs = int(s[3:].strip())
-        elif s.startswith(".ilb "):
-            input_labels = s[5:].split()
-        elif s.startswith(".ob "):
-            output_labels = s[4:].split()
-        elif s.startswith("."):
-            continue  # .p, .e, comments …
-        else:
-            parts = s.split(None, 1)
-            if len(parts) == 2:
-                terms.append((parts[0], parts[1]))
-
-    if not terms:
-        raise ValueError("No PLA data lines found in input")
-
-    # Infer widths from first term when headers are absent
-    if n_inputs is None:
-        n_inputs = len(terms[0][0])
-    if n_outputs is None:
-        n_outputs = len(terms[0][1])
-
-    if input_labels is None:
-        input_labels = [f"in{i}" for i in range(n_inputs)]
-    if output_labels is None:
-        output_labels = [f"out{i}" for i in range(n_outputs)]
-
-    # Validate widths
-    for inp, out in terms:
-        if len(inp) != n_inputs:
-            raise ValueError(
-                f"Input pattern width {len(inp)} ≠ {n_inputs}: {inp!r}"
-            )
-        if len(out) != n_outputs:
-            raise ValueError(
-                f"Output pattern width {len(out)} ≠ {n_outputs}: {out!r}"
-            )
-
-    return input_labels, output_labels, terms
-
-
-# ─── Circuit builder ───────────────────────────────────────────────────────────
-
-_CIRC_HEADER = """\
+class Xml:
+    HEADER = """\
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <project source="4.1.0" version="1.0">
   This file is intended to be loaded by Logisim-evolution v4.1.0(https://github.com/logisim-evolution/).
@@ -236,176 +234,299 @@ _CIRC_HEADER = """\
     <a name="appearance" val="logisim_evolution"/>
 """
 
-_CIRC_FOOTER = """\
+    FOOTER = """\
   </circuit>
 </project>
 """
 
+    @staticmethod
+    def _esc(val: str) -> str:
+        return (
+            val.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
 
-def _active_bits(inp: str) -> list[tuple[int, str]]:
-    """Return [(bit_index, char), …] for each non-don't-care bit in inp."""
-    return [(k, c) for k, c in enumerate(inp) if c in "01"]
+    @staticmethod
+    def _loc(x: int, y: int) -> str:
+        return f"({x},{y})"
+
+    @classmethod
+    def _comp(cls, lib: int, x: int, y: int, name: str,
+              attrs: dict[str, str] | None = None) -> str:
+        parts = [f'  <comp lib="{lib}" loc="{cls._loc(x, y)}" name="{cls._esc(name)}">']
+        for k, v in (attrs or {}).items():
+            parts.append(f'    <a name="{cls._esc(k)}" val="{cls._esc(v)}"/>')
+        parts.append("  </comp>")
+        return "\n".join(parts)
+
+    @classmethod
+    def wire(cls, x1: int, y1: int, x2: int, y2: int) -> str:
+        return f'  <wire from="{cls._loc(x1, y1)}" to="{cls._loc(x2, y2)}"/>'
+
+    @classmethod
+    def tunnel(cls, x: int, y: int, label: str, facing: str = "east") -> str:
+        return cls._comp(0, x, y, "Tunnel", {"facing": facing, "label": label})
+
+    @classmethod
+    def pin_in(cls, x: int, y: int, label: str) -> str:
+        return cls._comp(0, x, y, "Pin", {"appearance": "classic", "label": label})
+
+    @classmethod
+    def pin_out(cls, x: int, y: int, label: str) -> str:
+        return cls._comp(0, x, y, "Pin", {
+            "appearance": "classic",
+            "facing": "west",
+            "label": label,
+            "type": "output",
+        })
+
+    @classmethod
+    def not_gate(cls, x: int, y: int) -> str:
+        return cls._comp(1, x, y, "NOT Gate", {"size": str(Layout.NOT_SIZE)})
+
+    @classmethod
+    def and_gate(cls, x: int, y: int) -> str:
+        """2-input AND gate (no inputs= attribute)."""
+        return cls._comp(1, x, y, "AND Gate", {"size": str(Layout.GATE_SIZE)})
+
+    @classmethod
+    def or_gate(cls, x: int, y: int) -> str:
+        """2-input OR gate (no inputs= attribute)."""
+        return cls._comp(1, x, y, "OR Gate", {"size": str(Layout.GATE_SIZE)})
+
+    @classmethod
+    def constant(cls, x: int, y: int, value: int) -> str:
+        return cls._comp(0, x, y, "Constant", {"value": hex(value)})
 
 
-def build_circuit(
-    input_labels: list[str],
-    output_labels: list[str],
-    terms: list[tuple[str, str]],
-    circuit_name: str = "sop",
-) -> str:
-    """Build the full Logisim-evolution .circ XML for the SOP circuit."""
+# ─── GateTree ─────────────────────────────────────────────────────────────────
 
-    N = len(input_labels)
-    M = len(output_labels)
-    elems: list[str] = []
+class GateTree:
+    """
+    Build a balanced binary tree of 2-input gates whose output lands at
+    (x_out, y_out).
 
-    def add(s: str) -> None:
-        elems.append(s)
+    Gate geometry (size=30, facing east):
+      Output port     : (x_out, y_out)
+      Top input port  : (x_out - GATE_DEPTH,  y_out - GATE_PORT_OFFSET)
+      Bottom input port: (x_out - GATE_DEPTH, y_out + GATE_PORT_OFFSET)
+      Tunnel for top  : (x_out - LEAF_TUN_OFFSET, y_out - GATE_PORT_OFFSET) ──wire──► port
+      Tunnel for bottom: (x_out - LEAF_TUN_OFFSET, y_out + GATE_PORT_OFFSET) ──wire──► port
 
-    # ── Col A: Input pins + NOT gates ────────────────────────────────────────
-    for i, label in enumerate(input_labels):
-        y = Y_PIN_START + i * Y_PIN_STEP
+    Z-shape routing from sub-gate output (x_g, y_g) to parent port (x_p, y_p):
+      if y_g == y_p : single horizontal wire
+      else          : three wires via x_mid = (x_g + x_p) // 2
+    """
 
-        # Input pin (facing east by default – port at loc)
-        add(_pin_in(X_PIN_IN, y, label))
-        # Wire: pin → positive source tunnel
-        add(_wire(X_PIN_IN, y, X_SRC_TUN, y))
-        # Source tunnel for the positive signal  (east → visually points right)
-        add(_tunnel(X_SRC_TUN, y, label, "east"))
-        # Wire: positive source tunnel → NOT gate input  (depth=30 → input at X_NOT_OUT - 30)
-        add(_wire(X_SRC_TUN, y, X_NOT_OUT - NOT_DEPTH, y))
-        # NOT gate  (output loc = X_NOT_OUT)
-        add(_not_gate(X_NOT_OUT, y))
-        # Wire: NOT output → negated source tunnel
-        add(_wire(X_NOT_OUT, y, X_NEG_TUN, y))
-        # Source tunnel for the negated signal
-        add(_tunnel(X_NEG_TUN, y, f"{label}_n", "west"))
+    @classmethod
+    def build(cls, elems: list[str], gate_fn, lits: list[str],
+              x_out: int, y_out: int) -> None:
+        """
+        Emit XML elements for a balanced gate tree.
 
-    print(terms)
-
-    # ── Filter terms that drive at least one output ───────────────────────────
-    active_terms = [(inp, out) for inp, out in terms if "1" in out]
-
-    # ── Compute AND gate vertical layout ─────────────────────────────────────
-    k_max = max(
-        (len(_active_bits(inp)) for inp, _ in active_terms),
-        default=1,
-    )
-
-    and_step = max(k_max * 10 + 20, AND_MIN_STEP)
-    y_and_start = Y_PIN_START + N * Y_PIN_STEP + Y_AND_EXTRA
-    and_y = [y_and_start + j * and_step for j in range(len(active_terms))]
-
-    print(and_y)
-
-    # ── Col B: AND gates ──────────────────────────────────────────────────────
-    # term_tun[j] = tunnel label that carries term j's output signal.
-    term_tun: list[str] = []
-
-    for j, (inp, _out) in enumerate(active_terms):
-        y_and = and_y[j]
-        actives = _active_bits(inp)
-        K = len(actives)
-        tun = f"_t{j}"
+        gate_fn(x, y) -> str : Xml.and_gate or Xml.or_gate
+        lits                  : ordered list of signal label strings
+        Output signal appears at (x_out, y_out).
+        """
+        K = len(lits)
 
         if K == 0:
-            # All inputs are don't-care → this term is always 1.
-            # Place a Constant(1) and wire it to the term tunnel.
-            add(_constant(X_AND - 30, y_and, 1))
-            add(_wire(X_AND - 30, y_and, X_AND_TUN, y_and))
-            add(_tunnel(X_AND_TUN, y_and, tun, "east"))
+            # Always-true constant; wire feeds the output position.
+            elems.append(Xml.constant(x_out - Layout.GATE_DEPTH, y_out, 1))
+            elems.append(Xml.wire(x_out - Layout.GATE_DEPTH, y_out, x_out, y_out))
 
         elif K == 1:
-            # Single-literal term → no AND gate needed.
-            # Place a receive tunnel at X_AND that picks up the signal,
-            # then wire it across to the term output tunnel.
-            bit_idx, char = actives[0]
-            sig = input_labels[bit_idx] if char == "1" else f"{input_labels[bit_idx]}_n"
-            add(_tunnel(X_AND, y_and, sig, "west"))
-            add(_wire(X_AND, y_and, X_AND_TUN, y_and))
-            add(_tunnel(X_AND_TUN, y_and, tun, "east"))
+            # Single literal: receive tunnel placed at the output position.
+            elems.append(Xml.tunnel(x_out, y_out, lits[0], "west"))
 
         else:
-            # Multi-literal term: one AND gate.
-            add(_and_gate(X_AND, y_and, K))
-            # Output wire + tunnel
-            add(_wire(X_AND, y_and, X_AND_TUN, y_and))
-            add(_tunnel(X_AND_TUN, y_and, tun, "east"))
-            # Place a receive tunnel at each AND input port.
-            dy_list = gate_input_dy(K)
-            for port_i, (bit_idx, char) in enumerate(actives):
-                sig = (
-                    input_labels[bit_idx] if char == "1"
-                    else f"{input_labels[bit_idx]}_n"
-                )
-                px, py = X_AND_IN, y_and + dy_list[port_i]
-                # Facing west → visually points toward the gate on the right
-                add(_tunnel(px, py, sig, "west"))
+            # Balanced split: root gate + two sub-trees.
+            elems.append(gate_fn(x_out, y_out))
+            half = K // 2
 
-        term_tun.append(tun)
+            # Y positions of K leaves centred at y_out, spacing = TREE_LEAF_SPACING.
+            leaf_ys = [
+                y_out + round((i - (K - 1) / 2) * Layout.TREE_LEAF_SPACING)
+                for i in range(K)
+            ]
+            left_lits  = lits[:half]
+            right_lits = lits[half:]
+            y_left  = sum(leaf_ys[:half])  // half
+            y_right = sum(leaf_ys[half:])  // (K - half)
 
-    # ── Compute which terms contribute to each output ────────────────────────
-    contributing: list[list[int]] = []
-    for m in range(M):
-        contrib = [
-            j for j, (_, out) in enumerate(active_terms)
-            if m < len(out) and out[m] == "1"
-        ]
-        contributing.append(contrib)
+            px        = x_out - Layout.GATE_DEPTH         # x_out - 30
+            top_port_y = y_out - Layout.GATE_PORT_OFFSET  # y_out - 10
+            bot_port_y = y_out + Layout.GATE_PORT_OFFSET  # y_out + 10
 
-    # ── Compute OR gate Y positions ───────────────────────────────────────────
-    # Centre each OR gate on the mean Y of its contributing AND gates.
-    # Fall back to even distribution when there are no active terms.
-    y_fallback_start = y_and_start
-    or_y: list[int] = []
-    used_y: set[int] = set()
+            # ── Left (top) sub-group ──────────────────────────────────────────
+            if len(left_lits) == 1:
+                # Single leaf: tunnel directly adjacent to the parent's input port.
+                elems.append(Xml.tunnel(x_out - Layout.LEAF_TUN_OFFSET, top_port_y, left_lits[0], "east"))
+                elems.append(Xml.wire(x_out - Layout.LEAF_TUN_OFFSET, top_port_y, px, top_port_y))
+            else:
+                x_sub = x_out - Layout.TREE_X_STEP
+                cls.build(elems, gate_fn, left_lits, x_sub, y_left)
+                cls._z_route(elems, x_sub, y_left, px, top_port_y)
 
-    for m in range(M):
-        contrib = contributing[m]
-        if contrib and active_terms:
-            cy = sum(and_y[j] for j in contrib) // len(contrib)
+            # ── Right (bottom) sub-group ──────────────────────────────────────
+            if len(right_lits) == 1:
+                elems.append(Xml.tunnel(x_out - Layout.LEAF_TUN_OFFSET, bot_port_y, right_lits[0], "east"))
+                elems.append(Xml.wire(x_out - Layout.LEAF_TUN_OFFSET, bot_port_y, px, bot_port_y))
+            else:
+                x_sub = x_out - Layout.TREE_X_STEP
+                cls.build(elems, gate_fn, right_lits, x_sub, y_right)
+                cls._z_route(elems, x_sub, y_right, px, bot_port_y)
+
+    @staticmethod
+    def _z_route(elems: list[str], x_g: int, y_g: int, x_p: int, y_p: int) -> None:
+        """Route from sub-gate output (x_g, y_g) to parent input port (x_p, y_p)."""
+        if y_g == y_p:
+            elems.append(Xml.wire(x_g, y_g, x_p, y_p))
         else:
-            cy = y_fallback_start + m * AND_MIN_STEP
+            x_mid = (x_g + x_p) // 2
+            elems.append(Xml.wire(x_g, y_g, x_mid, y_g))
+            elems.append(Xml.wire(x_mid, y_g, x_mid, y_p))
+            elems.append(Xml.wire(x_mid, y_p, x_p, y_p))
 
-        # Nudge downward if position is already taken (10-unit steps)
-        while cy in used_y:
-            cy += 10
-        used_y.add(cy)
-        or_y.append(cy)
 
-    # ── Col C: OR gates + output pins ────────────────────────────────────────
-    for m, label in enumerate(output_labels):
-        y_or = or_y[m]
-        contrib = contributing[m]
-        L = len(contrib)
+# ─── SopBuilder ───────────────────────────────────────────────────────────────
 
-        if L == 0:
-            # Output is constant 0 – no terms produce it.
-            add(_constant(X_OR - 40, y_or, 0))
-            add(_wire(X_OR - 40, y_or, X_PIN_OUT, y_or))
-            add(_pin_out(X_PIN_OUT, y_or, label))
+class SopBuilder:
+    """Build the full Logisim-evolution .circ XML for the SOP circuit."""
 
-        elif L == 1:
-            # Only one contributing term – no OR gate needed.
-            tun = term_tun[contrib[0]]
-            add(_tunnel(X_OR, y_or, tun, "west"))
-            add(_wire(X_OR, y_or, X_PIN_OUT, y_or))
-            add(_pin_out(X_PIN_OUT, y_or, label))
+    def __init__(self, pla: PlaData, circuit_name: str = "sop") -> None:
+        self._pla = pla
+        self._circuit_name = circuit_name
+        self._elems: list[str] = []
 
-        else:
-            # Multiple contributing terms → OR gate.
-            add(_or_gate(X_OR, y_or, L))
-            add(_wire(X_OR, y_or, X_PIN_OUT, y_or))
-            add(_pin_out(X_PIN_OUT, y_or, label))
-            dy_list = gate_input_dy(L)
-            for port_i, j in enumerate(contrib):
-                tun = term_tun[j]
-                px, py = X_OR_IN, y_or + dy_list[port_i]
-                add(_tunnel(px, py, tun, "west"))
+    def build(self) -> str:
+        """Entry point — returns the complete .circ XML string."""
+        active_terms = self._pla.active_terms
+        self._build_col_a()
+        and_y, y_and_start = self._compute_and_layout(active_terms)
+        term_tun = self._build_col_b(active_terms, and_y)
+        self._build_col_c(active_terms, and_y, term_tun, y_and_start)
+        body = "\n".join(self._elems)
+        return Xml.HEADER.format(name=self._circuit_name) + body + "\n" + Xml.FOOTER
 
-    # ── Assemble full .circ XML ───────────────────────────────────────────────
-    body = "\n".join(elems)
-    return _CIRC_HEADER.format(name=circuit_name) + body + "\n" + _CIRC_FOOTER
+    # ── Col A ─────────────────────────────────────────────────────────────────
+
+    def _build_col_a(self) -> None:
+        """Input pins, NOT gates, and source tunnels for positive/negated signals."""
+        Lo = Layout
+        for i, label in enumerate(self._pla.input_labels):
+            y = Lo.Y_PIN_START + i * Lo.Y_PIN_STEP
+            self._elems.append(Xml.pin_in(Lo.X_PIN_IN, y, label))
+            self._elems.append(Xml.wire(Lo.X_PIN_IN, y, Lo.X_TUN_POS, y))
+            self._elems.append(Xml.wire(Lo.X_TUN_POS, y, Lo.X_TUN_POS, y - 30))
+            self._elems.append(Xml.wire(Lo.X_TUN_POS, y - 30, Lo.X_TUN_POS - 10, y - 30))
+            self._elems.append(Xml.tunnel(Lo.X_TUN_POS - 10, y - 30, label, "east"))
+            self._elems.append(Xml.wire(Lo.X_TUN_POS, y, Lo.X_NOT_OUT - Lo.NOT_DEPTH, y))
+            self._elems.append(Xml.not_gate(Lo.X_NOT_OUT, y))
+            self._elems.append(Xml.wire(Lo.X_NOT_OUT, y, Lo.X_TUN_NEG, y))
+            self._elems.append(Xml.tunnel(Lo.X_TUN_NEG, y, f"{label}_n", "west"))
+
+    # ── Layout helpers ────────────────────────────────────────────────────────
+
+    def _compute_and_layout(
+        self, active_terms: list[tuple[str, str]]
+    ) -> tuple[list[int], int]:
+        """Return (and_y list, y_and_start) for the AND tree rows."""
+        Lo = Layout
+        k_max = max(
+            (sum(1 for c in inp if c in "01") for inp, _ in active_terms),
+            default=1,
+        )
+        and_step = max(k_max * Lo.TREE_LEAF_SPACING, Lo.AND_MIN_STEP)
+        y_and_start = Lo.Y_PIN_START
+        and_y = [y_and_start + j * and_step for j in range(len(active_terms))]
+        return and_y, y_and_start
+
+    # ── Col B ─────────────────────────────────────────────────────────────────
+
+    def _build_col_b(
+        self, active_terms: list[tuple[str, str]], and_y: list[int]
+    ) -> list[str]:
+        """AND gate trees, one per active product term. Returns term tunnel labels."""
+        Lo = Layout
+        term_tun: list[str] = []
+        for j, (inp, _out) in enumerate(active_terms):
+            y_and = and_y[j]
+            lits = [
+                self._pla.input_labels[k] if c == "1"
+                else f"{self._pla.input_labels[k]}_n"
+                for k, c in enumerate(inp) if c in "01"
+            ]
+            tun = f"_t{j}"
+            GateTree.build(self._elems, Xml.and_gate, lits, Lo.X_AND, y_and)
+            self._elems.append(Xml.wire(Lo.X_AND, y_and, Lo.X_TUN_AND, y_and))
+            self._elems.append(Xml.tunnel(Lo.X_TUN_AND, y_and, tun, "west"))
+            term_tun.append(tun)
+        return term_tun
+
+    # ── Col C ─────────────────────────────────────────────────────────────────
+
+    def _build_col_c(
+        self,
+        active_terms: list[tuple[str, str]],
+        and_y: list[int],
+        term_tun: list[str],
+        y_and_start: int,
+    ) -> None:
+        """OR gate trees and output pins, one per output label."""
+        Lo = Layout
+        M = len(self._pla.output_labels)
+
+        # Compute X_OR based on the largest AND tree width + 100 padding.
+        k_max = max(
+            (sum(1 for c in inp if c in "01") for inp, _ in active_terms),
+            default=1,
+        )
+        and_tree_w = (math.ceil(math.log2(k_max)) - 1) * Lo.TREE_X_STEP + Lo.LEAF_TUN_OFFSET if k_max >= 2 else 0
+        x_or      = Lo.X_TUN_AND + and_tree_w + 360
+        x_pin_out = x_or + 30
+
+        # Which terms contribute to each output bit?
+        contributing: list[list[int]] = []
+        for m in range(M):
+            contrib = [
+                j for j, (_, out) in enumerate(active_terms)
+                if m < len(out) and out[m] == "1"
+            ]
+            contributing.append(contrib)
+
+        # Centre each OR tree on the mean Y of its contributing AND rows.
+        or_y: list[int] = []
+        used_y: set[int] = set()
+        for m in range(M):
+            contrib = contributing[m]
+            if contrib and active_terms:
+                cy = sum(and_y[j] for j in contrib) // len(contrib)
+            else:
+                cy = y_and_start + m * Lo.AND_MIN_STEP
+            while cy in used_y:
+                cy += 10
+            used_y.add(cy)
+            or_y.append(cy)
+
+        # Emit OR trees and output pins.
+        for m, label in enumerate(self._pla.output_labels):
+            y_or = or_y[m]
+            contrib = contributing[m]
+            n_contrib = len(contrib)
+
+            if n_contrib == 0:
+                # No terms produce this output → constant 0.
+                self._elems.append(Xml.constant(x_or - Lo.LEAF_TUN_OFFSET, y_or, 0))
+                self._elems.append(Xml.wire(x_or - Lo.LEAF_TUN_OFFSET, y_or, x_pin_out, y_or))
+                self._elems.append(Xml.pin_out(x_pin_out, y_or, label))
+            else:
+                contrib_tuns = [term_tun[j] for j in contrib]
+                GateTree.build(self._elems, Xml.or_gate, contrib_tuns, x_or, y_or)
+                self._elems.append(Xml.wire(x_or, y_or, x_pin_out, y_or))
+                self._elems.append(Xml.pin_out(x_pin_out, y_or, label))
 
 
 # ─── CLI entry point ───────────────────────────────────────────────────────────
@@ -414,7 +535,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Convert a minimized PLA to a Logisim-evolution SOP circuit (.circ). "
-            "Each product term becomes an AND gate; each output gets an OR gate."
+            "Each product term becomes an AND gate tree; each output gets an OR gate tree."
         )
     )
     parser.add_argument(
@@ -453,20 +574,20 @@ def main() -> int:
 
     # Parse PLA
     try:
-        input_labels, output_labels, terms = parse_pla(lines)
+        pla = PlaData.parse(lines)
     except ValueError as e:
         print(f"Error parsing PLA: {e}", file=sys.stderr)
         return 1
 
-    active = [t for t in terms if "1" in t[1]]
+    active = pla.active_terms
     print(
-        f"Inputs: {len(input_labels)}  Outputs: {len(output_labels)}  "
-        f"Terms: {len(terms)} ({len(active)} with active outputs)",
+        f"Inputs: {len(pla.input_labels)}  Outputs: {len(pla.output_labels)}  "
+        f"Terms: {len(pla.terms)} ({len(active)} with active outputs)",
         file=sys.stderr,
     )
 
     # Generate circuit XML
-    circ_xml = build_circuit(input_labels, output_labels, terms, args.circuit_name)
+    circ_xml = SopBuilder(pla, args.circuit_name).build()
 
     # Write output
     if args.out_circ is not None:
