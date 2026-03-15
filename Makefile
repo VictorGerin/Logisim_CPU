@@ -27,6 +27,7 @@ JED_TARGETS  := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t)
 TOML_TARGETS := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).toml)
 LGC_TARGETS  := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).lgc)
 PLA_TARGETS  := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).txt)
+CIRC_TARGETS := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).circ)
 
 # ==========================================
 # CONFIGURAÇÃO DE VPATH (Busca em Subpastas)
@@ -50,7 +51,7 @@ step1: gen_tables
 step2: all_compile
 
 gen_tables: $(CIRCUITS_GEN_TXT) $(TEMP_JSON_TARGETS)
-all_compile: $(PLD_TARGETS) $(JED_TARGETS) $(TOML_TARGETS) $(LGC_TARGETS) $(PLA_TARGETS)
+all_compile: $(PLD_TARGETS) $(JED_TARGETS) $(TOML_TARGETS) $(LGC_TARGETS) $(PLA_TARGETS) $(CIRC_TARGETS)
 
 # ==========================================
 # REGRAS DE CRIAÇÃO DE DIRETÓRIOS
@@ -78,6 +79,10 @@ $(BUILD_DIR)/%.toml: %.txt %.json scripts/truth_table_to_toml.py | $(BUILD_DIR)
 
 $(BUILD_DIR)/%.txt: %.txt scripts/truth_table_to_pla.py | $(BUILD_DIR)
 	python3 scripts/truth_table_to_pla.py $< --use-x --out-pla $@
+
+$(BUILD_DIR)/%.circ: %.txt scripts/truth_table_to_pla.py scripts/pla_to_logisim_sop.py | $(BUILD_DIR)
+	python3 scripts/truth_table_to_pla.py $< --keep-header \
+	  | python3 scripts/pla_to_logisim_sop.py - --circuit-name $(basename $(notdir $@)) --out-circ $@
 
 $(BUILD_DIR)/%.jed: $(BUILD_DIR)/%.pld | $(BUILD_DIR)
 	$(GALETTE) -c -f -p $<

@@ -75,6 +75,11 @@ def main() -> int:
         action="store_true",
         help="Write 'x' instead of '-' for don't-care in output file",
     )
+    parser.add_argument(
+        "--keep-header",
+        action="store_true",
+        help="Keep PLA header lines (.i, .o, .ilb, .ob, .p, .e) in the output",
+    )
     args = parser.parse_args()
 
     input_path = args.truth_table.resolve()
@@ -127,8 +132,8 @@ def main() -> int:
     if args.use_x:
         pla_text = pla_text.replace("-", "x")
 
-    # Output without header (like PLA_bit3.txt: only data lines)
-    out_content = _pla_data_lines_only(pla_text)
+    # Output: strip header by default, keep it if --keep-header was passed
+    out_content = pla_text if args.keep_header else _pla_data_lines_only(pla_text)
     num_terms = len([l for l in out_content.splitlines() if l.strip()])
 
     if args.out_pla is not None:
