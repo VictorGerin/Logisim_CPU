@@ -36,6 +36,7 @@ def gen_eq(lines, map_names, negate=False):
     if not map_names:
         return ""
 
+    map_names = [name.replace('[', '').replace(']', '') for name in map_names]
     # Replicate JS: each map entry has a trailing space for alignment
     map_with_space = [f"{name} " for name in map_names]
     n = len(map_with_space)

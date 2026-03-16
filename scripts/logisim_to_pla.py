@@ -33,7 +33,7 @@ def parse_spec(spec):
         if n == 1:
             labels = [name]
         else:
-            labels = [f"{name}{i}" for i in range(high, low - 1, -1)]
+            labels = [f"{name}[{i}]" for i in range(high, low - 1, -1)]
         return n, labels
     # single bit (e.g. 'A', 'B')
     if spec:

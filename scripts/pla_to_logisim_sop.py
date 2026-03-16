@@ -122,7 +122,7 @@ def _detect_groups(
     """
     parsed: list[tuple[str, int] | None] = []
     for lbl in labels:
-        m = re.match(r'^(.*?)(\d+)$', lbl)
+        m = re.match(r'^(.*?)\[(\d+)\]$', lbl)
         parsed.append((m.group(1), int(m.group(2))) if m else None)
 
     groups: dict[str, list[tuple[int, str]]] = defaultdict(list)
@@ -141,7 +141,7 @@ def _detect_groups(
     for lbl in labels:
         if lbl in seen:
             continue
-        m = re.match(r'^(.*?)(\d+)$', lbl)
+        m = re.match(r'^(.*?)\[(\d+)\]$', lbl)
         if m and m.group(1) in valid_groups:
             prefix = m.group(1)
             result.append((prefix, valid_groups[prefix]))

@@ -34,7 +34,7 @@ def _parse_header_token(token: str) -> list[str]:
         n = hi - lo + 1
         if n == 1:
             return [name]
-        return [f"{name}{i}" for i in range(hi, lo - 1, -1)]
+        return [f"{name}[{i}]" for i in range(hi, lo - 1, -1)]
     return [token]
 
 

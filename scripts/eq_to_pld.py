@@ -49,7 +49,7 @@ def _parse_pin_arg(arg: str) -> Tuple[int, str]:
         raise SystemExit(f"Invalid --pin value {arg!r}: expected N=LABEL")
     num_str, label = arg.split("=", 1)
     num_str = num_str.strip()
-    label = label.strip()
+    label = label.strip().replace('[', '').replace(']', '')
     if not num_str:
         raise SystemExit(f"Invalid --pin value {arg!r}: pin number is empty")
     try:
@@ -135,7 +135,7 @@ def load_pld_config(
                         raise SystemExit(f"Error: invalid pin key {k!r} in config (must be '1'..'24')")
                     if not (1 <= pin_num <= 24):
                         raise SystemExit(f"Error: pin number {pin_num} in config must be between 1 and 24")
-                    pins_map[pin_num] = str(v)
+                    pins_map[pin_num] = str(v).replace('[', '').replace(']', '')
             if "description" in cfg:
                 desc_from_config = cfg["description"]
             if "registered_outputs" in cfg:

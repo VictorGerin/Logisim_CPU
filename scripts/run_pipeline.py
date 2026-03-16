@@ -181,7 +181,8 @@ def stage_equations_from_pla(
         )
         eq = gen_eq.gen_eq(split_lines, map_names=input_labels, negate=negate)
         eq_out = eq if eq.strip() else "0"
-        prefix = f"{out_name} = "
+        clean_name = out_name.replace('[', '').replace(']', '')
+        prefix = f"{clean_name} = "
         if "\n" in eq_out:
             eq_out = eq_out.replace("\n", "\n" + (" " * len(prefix)))
         blocks.append(prefix + eq_out)

@@ -1,0 +1,34 @@
+{
+    "device": "GAL22V10",
+    "name": "ALU_InstructionDecode",
+    "vcc": 5,
+    "pins": {
+      "1": "NC",
+      "2": "Imm[3]",
+      "3": "Imm[2]",
+      "4": "Imm[1]",
+      "5": "Imm[0]",
+      "6": "RamData[3]",
+      "7": "RamData[2]",
+      "8": "RamData[1]",
+      "9": "RamData[0]",
+      "10": "Rd[3]",
+      "11": "Rd[2]",
+      "12": "GND",
+      "13": "Rd[1]",
+      "14": "Rd[0]",
+      "15": "RamOpe",
+      "16": "Op2IsImm",
+      "17": "RdOut[3]",
+      "18": "RdOut[2]",
+      "19": "RdOut[1]",
+      "20": "RdOut[0]",
+      "21": "NC",
+      "22": "NC",
+      "23": "NC",
+      "24": "VCC"
+    },
+    "description": [
+    ]
+  }
+  
