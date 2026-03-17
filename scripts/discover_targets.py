@@ -18,7 +18,6 @@ def main():
     parser.add_argument("--py", action="store_true")
     parser.add_argument("--py-with-json", action="store_true")
     parser.add_argument("--verilog-with-json", action="store_true")
-    parser.add_argument("--temp-pla", type=str, help="Caminho do build dir")
     args = parser.parse_args()
 
     circuits_dir = 'Circuits'
@@ -68,30 +67,6 @@ def main():
             if os.path.isfile(json_path):
                 print(v)
 
-    elif args.temp_pla:
-        # .pla em build/temp/ (não _full) com .json correspondente,
-        # excluindo stems já cobertos por .txt em Circuits/
-        build_temp = f"{args.temp_pla}/temp"
-
-        # Stems já cobertos por .txt com .json em Circuits/
-        txt_files = get_files_with_extension(circuits_dir, '.txt')
-        existing_stems = set()
-        for txt in txt_files:
-            if os.path.isfile(txt[:-4] + '.json'):
-                existing_stems.add(os.path.splitext(os.path.basename(txt))[0])
-
-        if os.path.isdir(build_temp):
-            for fname in os.listdir(build_temp):
-                if not fname.endswith('.pla'):
-                    continue
-                stem = fname[:-4]
-                if stem.endswith('_full'):
-                    continue
-                if stem in existing_stems:
-                    continue
-                json_path = os.path.join(build_temp, stem + '.json')
-                if os.path.isfile(json_path):
-                    print(os.path.join(build_temp, fname).replace(os.sep, '/'))
 
 if __name__ == "__main__":
     main()

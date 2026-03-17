@@ -19,28 +19,27 @@ CIRCUITS_PY           := $(shell python3 scripts/discover_targets.py --py)
 CIRCUITS_PY_WITH_JSON := $(shell python3 scripts/discover_targets.py --py-with-json)
 CIRCUITS_V_WITH_JSON  := $(shell python3 scripts/discover_targets.py --verilog-with-json)
 
-# Definição dos Targets (achatados)
+# Geração step1: .py → .txt e .json
 CIRCUITS_GEN_TXT  := $(foreach py, $(CIRCUITS_PY), $(BUILD_TEMP)/$(basename $(notdir $(py))).txt)
 TEMP_JSON_TARGETS := $(foreach py, $(CIRCUITS_PY_WITH_JSON), $(BUILD_TEMP)/$(basename $(notdir $(py))).json)
 
-# Targets para Verilog → PLA
-CIRCUITS_GEN_PLA  := $(foreach v, $(CIRCUITS_V_WITH_JSON), $(BUILD_TEMP)/$(basename $(notdir $(v))).pla)
+# .json copiados para BUILD_TEMP (necessário antes do step2)
 TEMP_JSON_FROM_V  := $(foreach v, $(CIRCUITS_V_WITH_JSON), $(BUILD_TEMP)/$(basename $(notdir $(v))).json)
 
-# Targets de step2 para fontes .txt
-PLD_TARGETS  := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).pld)
-JED_TARGETS  := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).jed)
-TOML_TARGETS := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).toml)
-LGC_TARGETS  := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).lgc)
-CIRC_TARGETS := $(foreach t, $(VALID_TXT), $(BUILD_DIR)/$(basename $(notdir $(t))).circ)
+# Todos os stems (union de .txt e .v, sem duplicatas)
+ALL_STEMS_V   := $(foreach v, $(CIRCUITS_V_WITH_JSON), $(basename $(notdir $(v))))
+ALL_STEMS_TXT := $(foreach t, $(VALID_TXT), $(basename $(notdir $(t))))
+ALL_STEMS     := $(sort $(ALL_STEMS_V) $(ALL_STEMS_TXT))
 
-# Targets de step2 para fontes .pla (Verilog)
-VALID_PLA_TEMP   := $(shell python3 scripts/discover_targets.py --temp-pla $(BUILD_DIR))
-PLD_FROM_PLA  := $(foreach t, $(VALID_PLA_TEMP), $(BUILD_DIR)/$(basename $(notdir $(t))).pld)
-JED_FROM_PLA  := $(foreach t, $(VALID_PLA_TEMP), $(BUILD_DIR)/$(basename $(notdir $(t))).jed)
-TOML_FROM_PLA := $(foreach t, $(VALID_PLA_TEMP), $(BUILD_DIR)/$(basename $(notdir $(t))).toml)
-LGC_FROM_PLA  := $(foreach t, $(VALID_PLA_TEMP), $(BUILD_DIR)/$(basename $(notdir $(t))).lgc)
-CIRC_FROM_PLA := $(foreach t, $(VALID_PLA_TEMP), $(BUILD_DIR)/$(basename $(notdir $(t))).circ)
+# Lista de .pla intermediários (só usada para declarar .INTERMEDIATE)
+ALL_MIN_PLA := $(addprefix $(BUILD_TEMP)/, $(addsuffix .pla, $(ALL_STEMS)))
+
+# Targets step2 unificados
+CIRC_ALL := $(addprefix $(BUILD_DIR)/, $(addsuffix .circ, $(ALL_STEMS)))
+PLD_ALL  := $(addprefix $(BUILD_DIR)/, $(addsuffix .pld,  $(ALL_STEMS)))
+TOML_ALL := $(addprefix $(BUILD_DIR)/, $(addsuffix .toml, $(ALL_STEMS)))
+JED_ALL  := $(addprefix $(BUILD_DIR)/, $(addsuffix .jed,  $(ALL_STEMS)))
+LGC_ALL  := $(addprefix $(BUILD_DIR)/, $(addsuffix .lgc,  $(ALL_STEMS)))
 
 # ==========================================
 # CONFIGURAÇÃO DE VPATH (Busca em Subpastas)
@@ -65,16 +64,21 @@ all: step1
 step1: gen_tables
 step2: all_compile
 
-gen_tables: $(CIRCUITS_GEN_TXT) $(TEMP_JSON_TARGETS) $(CIRCUITS_GEN_PLA) $(TEMP_JSON_FROM_V)
+# Step1: .txt gerados de .py e todos os .json copiados para BUILD_TEMP
+# As .pla são intermediárias — construídas sob demanda em step2
+gen_tables: $(CIRCUITS_GEN_TXT) $(TEMP_JSON_TARGETS) $(TEMP_JSON_FROM_V)
 
 all_compile: non_pld
 	-$(MAKE) compile_pld
 
-non_pld: $(CIRC_TARGETS) $(CIRC_FROM_PLA) \
-         $(JED_TARGETS) $(TOML_TARGETS) $(LGC_TARGETS) \
-         $(JED_FROM_PLA) $(TOML_FROM_PLA) $(LGC_FROM_PLA)
+non_pld: $(CIRC_ALL) $(TOML_ALL) $(LGC_ALL) $(JED_ALL)
+compile_pld: $(PLD_ALL)
 
-compile_pld: $(PLD_TARGETS) $(PLD_FROM_PLA)
+# Por padrão, Make apaga os .pla após o build (regras encadeadas = intermediários automáticos).
+# Para preservá-los: wsl make KEEP_PLA=1
+ifdef KEEP_PLA
+.SECONDARY: $(ALL_MIN_PLA)
+endif
 
 # ==========================================
 # REGRAS DE CRIAÇÃO DE DIRETÓRIOS
@@ -83,57 +87,53 @@ $(BUILD_DIR) $(BUILD_TEMP):
 	@mkdir -p $@
 
 # ==========================================
-# ETAPA 1: Geração de Tabelas
+# ETAPA 1: Geração de Intermediários
 # ==========================================
+
+# .py → BUILD_TEMP/%.txt
 $(BUILD_TEMP)/%.txt: %.py | $(BUILD_TEMP)
 	python3 scripts/gen_truth_table.py -i $< -o $@ -j12
 
+# .json → BUILD_TEMP/%.json
 $(BUILD_TEMP)/%.json: %.json | $(BUILD_TEMP)
 	cp $< $@
 
-# Verilog → PLA completo (via BLIF para preservar nomes das portas), depois Espresso
+# .txt → BUILD_TEMP/%.pla  (truth_table_to_pla.py + Espresso, mantém headers)
+# Aplica a Circuits/**/*.txt E a BUILD_TEMP/%.txt gerado por .py (via vpath)
+$(BUILD_TEMP)/%.pla: %.txt | $(BUILD_TEMP)
+	python3 scripts/truth_table_to_pla.py $< --keep-header --out-pla $@
+
+# .v → BUILD_TEMP/%.pla  (yosys + abc; sem Espresso — abc já minimiza suficientemente)
 $(BUILD_TEMP)/%.pla: %.v | $(BUILD_TEMP)
 	yosys -p "read_verilog $<; hierarchy -auto-top; proc; opt; techmap; opt; \
 	          write_blif $(BUILD_TEMP)/$*.blif"
-	yosys-abc -c "read_blif $(BUILD_TEMP)/$*.blif; collapse; write_pla $(BUILD_TEMP)/$*_full.pla"
-	python3 -c "p='$(BUILD_TEMP)/$*_full.pla'; s=open(p).read().replace('\\\\',''); open(p,'w').write(s)"
-	$(ESPRESSO) $(BUILD_TEMP)/$*_full.pla > $@
+	yosys-abc -c "read_blif $(BUILD_TEMP)/$*.blif; collapse; write_pla $@"
+	python3 -c "p='$@'; s=open(p).read().replace('\\\\',''); open(p,'w').write(s)"
 	rm -f $(BUILD_TEMP)/$*.blif
 
 # ==========================================
-# ETAPA 2: Compilação (Unificada)
+# ETAPA 2: Compilação Unificada (todas as fontes via BUILD_TEMP/%.pla)
 # ==========================================
-$(BUILD_DIR)/%.pld: %.txt %.json $(SCRIPTS_PY) | $(BUILD_DIR)
-	python3 scripts/run_pipeline.py -i $< --pld-config $(filter %.json,$^) --pld-out $(BUILD_DIR)/$*.pld
 
-$(BUILD_DIR)/%.toml: %.txt %.json scripts/truth_table_to_toml.py | $(BUILD_DIR)
-	python3 scripts/truth_table_to_toml.py $< $(filter %.json,$^) -o $@
+# .circ
+$(BUILD_DIR)/%.circ: $(BUILD_TEMP)/%.pla scripts/pla_to_logisim_sop.py | $(BUILD_DIR)
+	python3 scripts/pla_to_logisim_sop.py $< --circuit-name $(basename $(notdir $@)) --out-circ $@
 
-$(BUILD_DIR)/%.circ: %.txt scripts/truth_table_to_pla.py scripts/pla_to_logisim_sop.py | $(BUILD_DIR)
-	python3 scripts/truth_table_to_pla.py $< --keep-header \
-	  | python3 scripts/pla_to_logisim_sop.py - --circuit-name $(basename $(notdir $@)) --out-circ $@
+# .pld
+$(BUILD_DIR)/%.pld: $(BUILD_TEMP)/%.pla $(BUILD_TEMP)/%.json $(SCRIPTS_PY) | $(BUILD_DIR)
+	python3 scripts/pla_to_pld.py $< $(BUILD_TEMP)/$*.json $@
 
+# .toml
+$(BUILD_DIR)/%.toml: $(BUILD_TEMP)/%.pla $(BUILD_TEMP)/%.json scripts/truth_table_to_toml.py | $(BUILD_DIR)
+	python3 scripts/truth_table_to_toml.py $< $(BUILD_TEMP)/$*.json -o $@
+
+# .jed
 $(BUILD_DIR)/%.jed: $(BUILD_DIR)/%.pld | $(BUILD_DIR)
 	$(GALETTE) -c -f -p $<
 
+# .lgc
 $(BUILD_DIR)/%.lgc: $(BUILD_DIR)/%.toml | $(BUILD_DIR)
 	$(XGPRO_LOGIC) lgc $< $@
-
-# ==========================================
-# ETAPA 2: Compilação a partir de PLA (Verilog)
-# ==========================================
-
-# PLD de PLA minimizado (run_pipeline.py com --pla-input)
-$(BUILD_DIR)/%.pld: %.pla %.json $(SCRIPTS_PY) | $(BUILD_DIR)
-	python3 scripts/run_pipeline.py --pla-input -i $< --pld-config $(filter %.json,$^) --pld-out $@
-
-# CIRC de PLA minimizado (pla_to_logisim_sop.py aceita PLA com cabeçalhos)
-$(BUILD_DIR)/%.circ: %.pla scripts/pla_to_logisim_sop.py | $(BUILD_DIR)
-	python3 scripts/pla_to_logisim_sop.py $< --circuit-name $(basename $(notdir $@)) --out-circ $@
-
-# TOML do PLA completo (_full.pla – tabela verdade enumerada)
-$(BUILD_DIR)/%.toml: %_full.pla %.json scripts/truth_table_to_toml.py | $(BUILD_DIR)
-	python3 scripts/truth_table_to_toml.py $< $(filter %.json,$^) -o $@
 
 # ==========================================
 # ASSEMBLY E LOGISIM (Delegação para asm/)
