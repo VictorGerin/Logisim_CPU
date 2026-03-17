@@ -56,7 +56,7 @@ vpath %.pla $(BUILD_TEMP)
 # ==========================================
 # ORQUESTRAÇÃO DE MULTI-STEP
 # ==========================================
-.PHONY: all step1 step2 non_pld compile_pld
+.PHONY: all step1 step2 non_pld compile_jed
 
 all: step1
 	@$(MAKE) step2
@@ -69,15 +69,30 @@ step2: all_compile
 gen_tables: $(CIRCUITS_GEN_TXT) $(TEMP_JSON_TARGETS) $(TEMP_JSON_FROM_V)
 
 all_compile: non_pld
-	-$(MAKE) compile_pld
+	-$(MAKE) compile_jed
 
-non_pld: $(CIRC_ALL) $(TOML_ALL) $(LGC_ALL) $(JED_ALL)
-compile_pld: $(PLD_ALL)
+# Targets finais: .circ, .jed e .lgc
+# .pld e .toml são intermediários (gerados e deletados automaticamente)
+non_pld: $(CIRC_ALL) $(LGC_ALL)
+compile_jed: $(JED_ALL)
 
-# Por padrão, Make apaga os .pla após o build (regras encadeadas = intermediários automáticos).
-# Para preservá-los: wsl make KEEP_PLA=1
+# KEEP_ALL=1 é atalho para preservar todos os intermediários
+ifdef KEEP_ALL
+KEEP_PLA  := 1
+KEEP_PLD  := 1
+KEEP_TOML := 1
+endif
+
+# Por padrão, Make apaga intermediários (regras encadeadas).
+# Use KEEP_PLA=1 / KEEP_PLD=1 / KEEP_TOML=1 (ou KEEP_ALL=1) para preservar.
 ifdef KEEP_PLA
 .SECONDARY: $(ALL_MIN_PLA)
+endif
+ifdef KEEP_PLD
+.SECONDARY: $(PLD_ALL)
+endif
+ifdef KEEP_TOML
+.SECONDARY: $(TOML_ALL)
 endif
 
 # ==========================================
