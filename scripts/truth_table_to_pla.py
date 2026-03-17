@@ -94,7 +94,11 @@ def main() -> int:
         print(f"Error reading {input_path}: {e}", file=sys.stderr)
         return 1
 
-    import logisim_to_pla  # type: ignore
+    scripts_dir = Path(__file__).resolve().parent
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+
+    from lib import logisim_to_pla  # type: ignore
 
     try:
         input_labels, output_labels, rows = logisim_to_pla.read_logisim(lines)
@@ -116,14 +120,14 @@ def main() -> int:
             espresso_cmd = [str(args.espresso.resolve())]
         else:
             try:
-                from run_pipeline import _default_espresso_cmd  # type: ignore
-                espresso_cmd = _default_espresso_cmd(repo_root)
+                from lib.espresso import find_espresso_cmd  # type: ignore
+                espresso_cmd = find_espresso_cmd(repo_root)
             except Exception:
                 espresso_cmd = None
         if espresso_cmd:
             try:
-                from run_pipeline import _run_espresso  # type: ignore
-                pla_text = _run_espresso(espresso_cmd, pla_text, cwd=repo_root)
+                from lib.espresso import run_espresso  # type: ignore
+                pla_text = run_espresso(espresso_cmd, pla_text, cwd=repo_root)
             except SystemExit:
                 print("Warning: Espresso failed; writing raw PLA.", file=sys.stderr)
                 # keep pla_text as raw

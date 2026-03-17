@@ -7,8 +7,8 @@ Orchestrate the pipeline:
 Equivalent to (example):
   python3 scripts/logisim_to_pla.py -i Circuits/teste.txt \
     | ./Progs/espresso-logic/bin/espresso \
-    | python3 scripts/split.py 1 \
-    | python3 scripts/gen_eq.py --stdin -m A2 -m A1 -m A0 -m B1 -m B0
+    | (filter by output bit) \
+    | (build SOP equation)
 
 This script does the same, but:
   - imports the Python steps as modules
@@ -23,12 +23,17 @@ from __future__ import annotations
 import argparse
 import io
 import json
-import os
-import shlex
-import shutil
-import subprocess
 import sys
 from pathlib import Path
+
+# Ensure scripts/ is on sys.path so that lib/ package is importable.
+_scripts_dir = Path(__file__).resolve().parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+
+from lib.espresso import find_espresso_cmd, run_espresso  # noqa: E402
+from lib import logisim_to_pla  # noqa: E402
+from lib import eq_to_pld  # noqa: E402
 
 
 def _repo_root() -> Path:
@@ -36,91 +41,109 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _default_espresso_cmd(repo_root: Path) -> list[str] | None:
-    # Expected location in this repo (may or may not exist).
-    candidates = [
-        repo_root / "Progs" / "espresso-logic" / "bin" / "espresso.exe",
-        repo_root / "Progs" / "espresso-logic" / "bin" / "espresso",
-    ]
-    for p in candidates:
-        if p.exists():
-            return [str(p)]
+def split_espresso_by_bit(lines, var_index, replace_dash_to_x=True):
+    """
+    Filter Espresso PLA lines by output bit index.
 
-    # Fallback: espresso available on PATH
-    which = shutil.which("espresso")
-    if which:
-        return [which]
-
-    return None
-
-
-def _win_to_wsl_path(p: Path) -> str:
-    # Convert "C:\\Users\\me\\repo" -> "/mnt/c/Users/me/repo"
-    posix = p.resolve().as_posix()  # "C:/Users/..."
-    if len(posix) >= 2 and posix[1] == ":":
-        drive = posix[0].lower()
-        rest = posix[2:]  # "/Users/..."
-        return f"/mnt/{drive}{rest}"
-    return posix
-
-
-def _wsl_bash_line(cmd: list[str], cwd: Path) -> str:
-    linux_cwd = _win_to_wsl_path(cwd)
-
-    quoted: list[str] = []
-    for arg in cmd:
-        # If user passed an absolute Windows path, translate it.
-        try:
-            p = Path(arg)
-            if p.drive:
-                arg = _win_to_wsl_path(p)
-        except Exception:
-            pass
-        quoted.append(shlex.quote(arg))
-
-    return f"cd {shlex.quote(linux_cwd)} && " + " ".join(quoted)
+    Keeps only lines where the output bit at var_index is '1', and returns
+    lines in the form "input output_bit". Optionally replaces '-' with 'x'.
+    """
+    result_lines = []
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("."):
+            continue
+        parts = line.split(" ", 1)
+        if len(parts) != 2:
+            continue
+        input_part, output_part = parts
+        if var_index < 0 or var_index >= len(output_part):
+            continue
+        output_bit = output_part[var_index]
+        if output_bit != "1":
+            continue
+        out_line = f"{input_part} {output_bit}"
+        if replace_dash_to_x:
+            out_line = out_line.replace("-", "x")
+        result_lines.append(out_line)
+    return result_lines
 
 
-def _run_espresso(cmd: list[str], pla_text: str, cwd: Path) -> str:
-    try:
-        proc = subprocess.run(
-            cmd,
-            input=pla_text,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
-            cwd=str(cwd),
-        )
-    except FileNotFoundError as e:
-        raise SystemExit(
-            "Error: Espresso executable not found.\n"
-            f"  Command: {cmd!r}\n"
-            "Provide it with --espresso, or build/install Espresso."
-        ) from e
-    except OSError as e:
-        # Common Windows case: trying to run an ELF (Linux) binary directly.
-        if os.name == "nt" and getattr(e, "winerror", None) == 193 and shutil.which("wsl"):
-            wsl_cmd = ["wsl", "bash", "-lc", _wsl_bash_line(cmd, cwd=cwd)]
-            proc = subprocess.run(
-                wsl_cmd,
-                input=pla_text,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                capture_output=True,
-            )
-        else:
-            raise SystemExit(f"Error: failed to start Espresso: {e}") from e
+def gen_eq(lines, map_names, negate=False):
+    """
+    Build a sum-of-products equation string from minterm lines.
 
-    if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()
-        msg = "Error: Espresso failed (non-zero exit code)."
-        if stderr:
-            msg += "\n\n--- Espresso stderr ---\n" + stderr
-        raise SystemExit(msg)
+    Args:
+        lines: Iterable of strings in "input [output]" format (only first token used).
+        map_names: List of variable names, one per input bit position.
+        negate: If True, swap literals (1 -> negated, 0 -> asserted).
 
-    return proc.stdout or ""
+    Returns:
+        String of product terms separated by "+\\n".
+    """
+    if not map_names:
+        return ""
+
+    map_names = [name.replace('[', '').replace(']', '') for name in map_names]
+    map_with_space = [f"{name} " for name in map_names]
+    n = len(map_with_space)
+    terms = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        input_part = line.split(None, 1)[0]
+        chars = list(input_part)
+        limit = min(len(chars), n)
+        first_has_printed = False
+        parts = []
+
+        for i in range(limit):
+            c = chars[i]
+            has_value = False
+            if c == "1":
+                has_value = True
+                prefix = "/" if negate else " "
+                parts.append(f"{prefix}{map_with_space[i]}")
+            elif c == "0":
+                has_value = True
+                prefix = " " if negate else "/"
+                parts.append(f"{prefix}{map_with_space[i]}")
+            else:
+                # don't-care (x or -)
+                parts.append(" " * (len(map_with_space[i]) + 2))
+
+            if has_value and first_has_printed:
+                parts[-1] = "*" + parts[-1]
+            if has_value:
+                first_has_printed = True
+
+        term_str = "".join(p for p in parts if p)
+        terms.append(term_str)
+
+    return "+\n".join(terms)
+
+
+def parse_pla_headers(lines: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """Parse an Espresso PLA file with headers.
+
+    Extracts input_labels from '.ilb' and output_labels from '.ob'.
+    Returns (input_labels, output_labels, data_lines) where data_lines
+    contains only the product-term rows (no header directives).
+    """
+    input_labels: list[str] = []
+    output_labels: list[str] = []
+    data_lines: list[str] = []
+    for line in lines:
+        s = line.strip()
+        if s.startswith(".ilb "):
+            input_labels = s[5:].split()
+        elif s.startswith(".ob "):
+            output_labels = s[4:].split()
+        elif s and not s.startswith("."):
+            data_lines.append(s)
+    return input_labels, output_labels, data_lines
 
 
 def stage_read_input(args: argparse.Namespace) -> list[str]:
@@ -140,8 +163,6 @@ def stage_read_input(args: argparse.Namespace) -> list[str]:
 
 def stage_parse_logisim(lines: list[str]) -> tuple[list[str], list[str], list[tuple[str, str]]]:
     """Parse Logisim truth table lines. Returns (input_labels, output_labels, rows)."""
-    import logisim_to_pla  # type: ignore
-
     return logisim_to_pla.read_logisim(lines)
 
 
@@ -151,8 +172,6 @@ def stage_build_pla(
     rows: list[tuple[str, str]],
 ) -> str:
     """Build PLA text from parsed Logisim data."""
-    import logisim_to_pla  # type: ignore
-
     pla_buf = io.StringIO()
     logisim_to_pla.write_pla(pla_buf, input_labels, output_labels, rows)
     return pla_buf.getvalue()
@@ -160,7 +179,7 @@ def stage_build_pla(
 
 def stage_run_espresso(pla_text: str, espresso_cmd: list[str], cwd: Path) -> list[str]:
     """Run Espresso on PLA text. Returns minimized PLA as list of lines."""
-    minimized = _run_espresso(espresso_cmd, pla_text, cwd=cwd)
+    minimized = run_espresso(espresso_cmd, pla_text, cwd=cwd)
     return minimized.splitlines()
 
 
@@ -171,15 +190,12 @@ def stage_equations_from_pla(
     negate: bool,
 ) -> list[str]:
     """Build equation blocks (one per output bit). Returns list of 'OutName = ...' strings."""
-    import gen_eq  # type: ignore
-    import split  # type: ignore
-
     blocks: list[str] = []
     for i, out_name in enumerate(output_labels):
-        split_lines = split.split_espresso_by_bit(
+        split_lines = split_espresso_by_bit(
             pla_lines, var_index=i, replace_dash_to_x=True
         )
-        eq = gen_eq.gen_eq(split_lines, map_names=input_labels, negate=negate)
+        eq = gen_eq(split_lines, map_names=input_labels, negate=negate)
         eq_out = eq if eq.strip() else "0"
         clean_name = out_name.replace('[', '').replace(']', '')
         prefix = f"{clean_name} = "
@@ -199,8 +215,6 @@ def stage_build_pld(
     input_path: Path | None,
 ) -> str:
     """Build PLD text from equation blocks and config. Returns .pld file content (no I/O)."""
-    import eq_to_pld  # type: ignore
-
     if config_path is None and input_path is not None:
         default_config = input_path.with_suffix(".json")
         if default_config.is_file():
@@ -245,10 +259,19 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--pla-input",
+        action="store_true",
+        help=(
+            "Treat -i as an Espresso PLA file (with .ilb/.ob headers) instead of a "
+            "Logisim truth table. Skips the Logisim parse and Espresso minimization "
+            "stages (the PLA is used as-is)."
+        ),
+    )
+    parser.add_argument(
         "-n",
         "--negate",
         action="store_true",
-        help="Swap literals (same behavior as gen_eq.py --negate)",
+        help="Swap literals (same behavior as the --negate flag in gen_eq)",
     )
     parser.add_argument(
         "--pld-out",
@@ -287,66 +310,47 @@ def main(argv: list[str] | None = None) -> int:
         metavar="LINE",
         help="Description line (DESCRIPTION section in .pld). Overrides description from config when provided.",
     )
-    parser.add_argument(
-        "--pla-rom-out",
-        nargs="?",
-        const="stdout",
-        default=None,
-        metavar="FILE",
-        help="Output Logisim-evolution PlaRom XML: no arg or FILE=stdout prints to stdout; otherwise write to FILE.",
-    )
     args = parser.parse_args(argv)
 
     repo_root = _repo_root()
 
-    # Import modules from scripts/ (same directory as this file).
-    scripts_dir = Path(__file__).resolve().parent
-    if str(scripts_dir) not in sys.path:
-        sys.path.insert(0, str(scripts_dir))
-
-    try:
-        import logisim_to_pla  # type: ignore
-        import split  # type: ignore
-        import gen_eq  # type: ignore
-        import eq_to_pld  # type: ignore
-        import pla_to_plarom  # type: ignore
-    except Exception as e:
-        raise SystemExit(f"Error: failed to import pipeline modules: {e}") from e
-
-    lines = stage_read_input(args)
-    input_labels, output_labels, rows = stage_parse_logisim(lines)
-    pla_text = stage_build_pla(input_labels, output_labels, rows)
-
-    if args.espresso:
-        espresso_cmd = [args.espresso]
+    if args.pla_input:
+        # PLA input mode: read an Espresso PLA file directly (e.g. from yosys).
+        # Skips Logisim parsing and Espresso minimization — the PLA is already minimized.
+        lines = stage_read_input(args)
+        input_labels, output_labels, pla_lines = parse_pla_headers(lines)
+        if not input_labels:
+            raise SystemExit(
+                "Error: PLA file has no '.ilb' header. "
+                "Make sure the file was generated with headers (e.g. yosys write_pla)."
+            )
+        if not output_labels:
+            raise SystemExit(
+                "Error: PLA file has no '.ob' header. "
+                "Make sure the file was generated with headers (e.g. yosys write_pla)."
+            )
     else:
-        espresso_cmd = _default_espresso_cmd(repo_root)
-    if not espresso_cmd:
-        raise SystemExit(
-            "Error: could not locate Espresso.\n"
-            "Provide it with --espresso, or install Espresso on PATH.\n"
-            "Note: this repo currently contains Espresso source under "
-            f"{repo_root / 'Progs' / 'espresso-logic'} but may not include a built binary."
-        )
+        lines = stage_read_input(args)
+        input_labels, output_labels, rows = stage_parse_logisim(lines)
+        pla_text = stage_build_pla(input_labels, output_labels, rows)
 
-    pla_lines = stage_run_espresso(pla_text, espresso_cmd, cwd=repo_root)
+        if args.espresso:
+            espresso_cmd = [args.espresso]
+        else:
+            espresso_cmd = find_espresso_cmd(repo_root)
+        if not espresso_cmd:
+            raise SystemExit(
+                "Error: could not locate Espresso.\n"
+                "Provide it with --espresso, or install Espresso on PATH.\n"
+                "Note: this repo currently contains Espresso source under "
+                f"{repo_root / 'Progs' / 'espresso-logic'} but may not include a built binary."
+            )
+
+        pla_lines = stage_run_espresso(pla_text, espresso_cmd, cwd=repo_root)
+
     equation_blocks = stage_equations_from_pla(
         pla_lines, input_labels, output_labels, negate=args.negate
     )
-
-    if args.pla_rom_out is not None:
-        try:
-            attrs = pla_to_plarom.plarom_attrs(pla_lines)
-            plarom_xml = pla_to_plarom.render_plarom_xml(attrs)
-            if args.pla_rom_out == "stdout":
-                sys.stdout.write(plarom_xml + "\n")
-            else:
-                out_path = Path(args.pla_rom_out)
-                if not out_path.is_absolute():
-                    out_path = (Path.cwd() / out_path).resolve()
-                out_path.write_text(plarom_xml + "\n", encoding="utf-8")
-        except (ValueError, OSError) as e:
-            raise SystemExit(f"Error: PlaRom output failed: {e}") from e
 
     if args.pld_out is None:
         for block in equation_blocks:
@@ -377,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
         output_splits = None
 
     if output_splits:
-        import split_sop  # type: ignore
+        from lib import split_sop  # type: ignore
 
         try:
             equation_blocks = split_sop.apply_output_splits(
@@ -412,4 +416,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
