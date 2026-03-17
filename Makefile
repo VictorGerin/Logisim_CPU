@@ -57,7 +57,7 @@ vpath %.pla $(BUILD_TEMP)
 # ==========================================
 # ORQUESTRAÇÃO DE MULTI-STEP
 # ==========================================
-.PHONY: all step1 step2
+.PHONY: all step1 step2 non_pld compile_pld
 
 all: step1
 	@$(MAKE) step2
@@ -66,8 +66,15 @@ step1: gen_tables
 step2: all_compile
 
 gen_tables: $(CIRCUITS_GEN_TXT) $(TEMP_JSON_TARGETS) $(CIRCUITS_GEN_PLA) $(TEMP_JSON_FROM_V)
-all_compile: $(PLD_TARGETS) $(JED_TARGETS) $(TOML_TARGETS) $(LGC_TARGETS) $(CIRC_TARGETS) \
-             $(PLD_FROM_PLA) $(JED_FROM_PLA) $(TOML_FROM_PLA) $(LGC_FROM_PLA) $(CIRC_FROM_PLA)
+
+all_compile: non_pld
+	-$(MAKE) compile_pld
+
+non_pld: $(CIRC_TARGETS) $(CIRC_FROM_PLA) \
+         $(JED_TARGETS) $(TOML_TARGETS) $(LGC_TARGETS) \
+         $(JED_FROM_PLA) $(TOML_FROM_PLA) $(LGC_FROM_PLA)
+
+compile_pld: $(PLD_TARGETS) $(PLD_FROM_PLA)
 
 # ==========================================
 # REGRAS DE CRIAÇÃO DE DIRETÓRIOS
