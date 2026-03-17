@@ -141,12 +141,12 @@ logisim:
 # REGRAS DOS PROGRAMAS DEPENDENTES
 # ==========================================
 install-deps:
-	@echo "Checking for system dependencies (gcc, cargo, go)..."
-	@if ! command -v gcc > /dev/null 2>&1 || ! command -v cargo > /dev/null 2>&1 || ! command -v go > /dev/null 2>&1; then \
+	@echo "Checking for system dependencies (gcc, cargo, go, yosys)..."
+	@if ! command -v gcc > /dev/null 2>&1 || ! command -v cargo > /dev/null 2>&1 || ! command -v go > /dev/null 2>&1 || ! command -v yosys > /dev/null 2>&1; then \
 		echo "Installing missing dependencies..."; \
-		sudo apt-get update && sudo apt-get install -y build-essential cargo golang-go; \
+		sudo apt-get update && sudo apt-get install -y build-essential cargo golang-go yosys; \
 	else \
-		echo "All dependencies (gcc, cargo, go) are already installed."; \
+		echo "All dependencies (gcc, cargo, go, yosys) are already installed."; \
 	fi
 	$(MAKE) -C asm install-deps
 

@@ -11,11 +11,11 @@ Todo o fluxo de build é feito via **Make**. No Windows os comandos rodam dentro
 **Pré-requisitos**
 
 - Windows: [WSL](https://learn.microsoft.com/en-us/windows/wsl/) instalado e configurado.
-- No WSL (ou no sistema, se for Linux/macOS): o Makefile usa `python3` e as ferramentas compiladas em `Progs/`.
+- No WSL (ou no sistema, se for Linux/macOS): o Makefile usa `python3`, `yosys`, `yosys-abc` e as ferramentas compiladas em `Progs/`.
 
 **Primeira vez**
 
-Compile as ferramentas (Espresso, Galette, xgpro-logic). O target `build-progs` instala dependências no WSL se necessário (gcc, cargo, go) e compila tudo:
+Compile as ferramentas (Espresso, Galette, xgpro-logic). O target `build-progs` instala dependências no WSL se necessário (gcc, cargo, go, yosys) e compila tudo:
 
 ```bash
 make build-progs
@@ -23,13 +23,13 @@ make build-progs
 
 **Gerar artefatos**
 
-Coloque em `Circuits/` arquivos de tabela verdade (`.txt`) e config/pinout (`.json`) com o **mesmo nome base** (ex.: `teste.txt` e `teste.json`). Scripts Python em `Circuits/` (`.py` com mesmo-nome `.json`) geram tabelas em `build/temp/` e o `.json` é copiado para lá. Depois:
+Coloque em `Circuits/` arquivos de tabela verdade (`.txt`) e config/pinout (`.json`) com o **mesmo nome base** (ex.: `teste.txt` e `teste.json`). Scripts Python em `Circuits/` (`.py` com mesmo-nome `.json`) geram tabelas em `build/temp/` e o `.json` é copiado para lá. Arquivos Verilog (`.v` com mesmo-nome `.json`) são convertidos para PLA via `yosys`/`yosys-abc` e minimizados com Espresso. Depois:
 
 ```bash
 make
 ```
 
-ou `make all`. As saídas são geradas na pasta **configurável** `build/` (default; defina `BUILD_DIR` no Make para outro diretório): `.pld`, `.jed`, `.toml`, `.lgc` (e `_plarom.xml` para PLA/ROM). Tabelas geradas por `.py` ficam em `build/temp/`.
+ou `make all`. As saídas são geradas na pasta **configurável** `build/` (default; defina `BUILD_DIR` no Make para outro diretório): `.pld`, `.jed`, `.toml`, `.lgc`, `.circ`. Tabelas e PLAs intermediários gerados ficam em `build/temp/`.
 
 **Limpar**
 
@@ -41,40 +41,52 @@ ou `make all`. As saídas são geradas na pasta **configurável** `build/` (defa
 
 | Target | Descrição |
 |--------|------------|
-| `all` (default) | step1: gera .txt em build/temp a partir de Circuits/*.py e copia .json; step2: gera .pld, .jed, .toml, .lgc em build/ para cada par .txt+.json (Circuits/ e build/temp/) |
-| `build-progs` | Instala deps no WSL e compila espresso, galasm, xgpro-logic |
-| `install-deps` | Instala gcc, cargo, go no WSL (chamado por build-progs) |
+| `all` (default) | step1: gera `.txt` em `build/temp` a partir de `Circuits/*.py` e `.pla` a partir de `Circuits/*.v` (via yosys+espresso); step2: gera `.pld`, `.jed`, `.toml`, `.lgc`, `.circ` em `build/` para cada par `.txt+.json` ou `.pla+.json` |
+| `build-progs` | Chama `install-deps` e compila espresso, galasm, xgpro-logic |
+| `install-deps` | Instala gcc, cargo, go, yosys no WSL (chamado por build-progs) |
 | `clean-build` | Remove conteúdo de build/ |
 | `clean-gal` | Alias para clean-build |
 | `clean-progs` | Limpa builds das ferramentas em Progs/ |
 
 **Pipeline**
 
-O Make usa os scripts Python (`run_pipeline.py` com `eq_to_pld`, `truth_table_to_toml.py`) e as ferramentas em `Progs/` (espresso, galette, xgpro-logic) para transformar cada par `.txt` + `.json` (em `Circuits/` ou em `build/temp/`) nos arquivos em `build/`.
+O Make usa os scripts Python (`run_pipeline.py`, `truth_table_to_toml.py`, `pla_to_logisim_sop.py`) e as ferramentas em `Progs/` (espresso, galette, xgpro-logic) para transformar cada par `.txt`/`.v` + `.json` (em `Circuits/` ou em `build/temp/`) nos arquivos em `build/`.
 
 ```mermaid
 flowchart LR
-  Circuits["Circuits/*.txt + *.json"]
-  BuildTemp["build/temp/*.txt + *.json"]
+  CircuitsTxt["Circuits/*.txt + *.json"]
+  CircuitsV["Circuits/*.v + *.json"]
+  CircuitsPy["Circuits/*.py"]
+  GenTable["gen_truth_table.py"]
+  Yosys["yosys + yosys-abc"]
+  Espresso["espresso"]
+  BuildTemp["build/temp/*.txt + *.pla + *.json"]
   RunPipeline["run_pipeline.py"]
-  PLD["build/*.pld, _plarom.xml"]
+  PLD["build/*.pld"]
   Galette["galette"]
   JED["build/*.jed"]
   TruthToml["truth_table_to_toml.py"]
   TOML["build/*.toml"]
   Xgpro["xgpro-logic"]
   LGC["build/*.lgc"]
-  Circuits --> BuildTemp
-  Circuits --> RunPipeline
+  PlaToSop["pla_to_logisim_sop.py"]
+  CIRC["build/*.circ"]
+  CircuitsPy --> GenTable
+  GenTable --> BuildTemp
+  CircuitsTxt --> BuildTemp
+  CircuitsV --> Yosys
+  Yosys --> Espresso
+  Espresso --> BuildTemp
   BuildTemp --> RunPipeline
   RunPipeline --> PLD
   PLD --> Galette
   Galette --> JED
-  Circuits --> TruthToml
   BuildTemp --> TruthToml
   TruthToml --> TOML
   TOML --> Xgpro
   Xgpro --> LGC
+  BuildTemp --> PlaToSop
+  PlaToSop --> CIRC
 ```
 
 ----------
@@ -99,14 +111,17 @@ O fluxo recomendado é via **Make**; os scripts são usados internamente pelo Ma
 
 #### run_pipeline.py
 
-Orquestra o pipeline completo: tabela verdade do Logisim → PLA → Espresso → equações por bit de saída → geração de `.pld` e opcionalmente `_plarom.xml`. Usa o módulo `eq_to_pld` para aplicar a config em JSON.
+Orquestra o pipeline completo: tabela verdade do Logisim (ou PLA pré-minimizado) → Espresso → equações por bit de saída → geração de `.pld`. Usa o módulo `eq_to_pld` para aplicar a config em JSON.
 
 ```bash
-# Entrada por arquivo; PLD e PLA-ROM para arquivos (config = <nome>.json no mesmo dir que -i)
-python3 scripts/run_pipeline.py -i Exemplo/teste.txt --pld-out Gal/teste.pld --pla-rom-out Gal/teste_plarom.xml
+# Entrada por arquivo .txt; PLD para arquivo (config = <nome>.json no mesmo dir que -i)
+python3 scripts/run_pipeline.py -i Exemplo/teste.txt --pld-out build/teste.pld
 
 # Entrada por stdin; PLD na stdout
 cat Exemplo/teste.txt | python3 scripts/run_pipeline.py --pld-config Exemplo/teste.json --pld-out
+
+# Entrada como PLA já minimizado (pula parsing e minimização)
+python3 scripts/run_pipeline.py --pla-input -i build/temp/teste.pla --pld-config Exemplo/teste.json --pld-out build/teste.pld
 
 # Opções úteis: --espresso PATH, -n (negate), --pld-device, --pld-name, --pld-pin N=LABEL, --pld-desc LINE
 python3 scripts/run_pipeline.py --help
@@ -122,73 +137,70 @@ python3 scripts/truth_table_to_toml.py Exemplo/teste.txt Exemplo/teste.json -o G
 python3 scripts/truth_table_to_toml.py --help
 ```
 
-#### logisim_to_pla.py
-
-Converte tabela verdade do Logisim para o formato PLA do Espresso (entrada para o binário `espresso`). Saída na stdout para encadear no pipeline.
-
-```bash
-# Pipeline: tabela → PLA → espresso → ...
-python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt | ./Progs/espresso-logic/bin/espresso
-
-# Gravar PLA em arquivo (se não for encadear)
-python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt -o pla.txt
-python3 scripts/logisim_to_pla.py --help
-```
-
 #### truth_table_to_pla.py
 
-Converte tabela verdade do Logisim para **um único** PLA com todos os bits de entrada e de saída por termo (interpretável pelo componente PLA). Por defeito a saída vai para stdout; use `--out-pla` para gravar num ficheiro. Minimiza com Espresso por defeito.
+Converte tabela verdade do Logisim para PLA compatível com Espresso. O Logisim exporta um formato similar ao PLA standard, mas usa `x` em vez de `-` para representar don't-cares; este script faz essa conversão. A saída vai para stdout (apenas linhas de dados, sem cabeçalho); use `--out-pla` para gravar em ficheiro. Minimiza com Espresso por defeito.
 
 ```bash
-# Saída para stdout (encadear no pipeline ou redirecionar)
+# Saída para stdout (encadear no pipeline)
 python3 scripts/truth_table_to_pla.py Circuits/Docs/InstructionDecoder.txt
 
 # Gravar num ficheiro
-python3 scripts/truth_table_to_pla.py Circuits/Docs/InstructionDecoder.txt --out-pla Circuits/Docs/InstructionDecoder.pla
+python3 scripts/truth_table_to_pla.py Circuits/Docs/InstructionDecoder.txt --out-pla build/decoder.pla
 
 # Sem minimização (PLA bruto)
-python3 scripts/truth_table_to_pla.py Circuits/Docs/InstructionDecoder.txt --no-minimize --out-pla Circuits/Docs/decoder.pla
+python3 scripts/truth_table_to_pla.py Circuits/Docs/InstructionDecoder.txt --no-minimize --out-pla build/decoder.pla
+
+# Manter cabeçalhos PLA (.i, .o, .ilb, .ob, .p, .e) na saída
+python3 scripts/truth_table_to_pla.py Circuits/Docs/InstructionDecoder.txt --keep-header --out-pla build/decoder.pla
 
 # Don't-care como 'x' em vez de '-'
 python3 scripts/truth_table_to_pla.py Circuits/Docs/InstructionDecoder.txt --use-x --out-pla out.pla
 python3 scripts/truth_table_to_pla.py --help
 ```
 
-#### split.py
+#### discover_targets.py
 
-Separa a saída do Espresso por índice do bit de saída. Lê PLA na stdin ou de arquivo; imprime apenas as linhas do bit pedido (por padrão troca `-` por `x` para PLA no Logisim).
+> **Uso interno** — chamado pelo Makefile para descoberta dinâmica de arquivos-fonte. Não é necessário invocá-lo manualmente no fluxo normal.
+
+Descobre arquivos-fonte em `Circuits/` e `build/temp/` que satisfazem critérios específicos (par `.txt`+`.json`, `.py`, `.v`, `.pla`). Imprime os caminhos encontrados na stdout.
 
 ```bash
-# Pipeline: tabela → PLA → espresso → split (bit 0-based)
-python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt | ./Progs/espresso-logic/bin/espresso | python3 scripts/split.py 0
+# .txt em Circuits/ que têm .json correspondente
+python3 scripts/discover_targets.py --circuits-txt
 
-# Bit 2 (terceiro bit de saída)
-python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt | ./Progs/espresso-logic/bin/espresso | python3 scripts/split.py 2
+# .txt gerados em build/temp/ a partir de .py (excluindo os que já estão em Circuits/)
+python3 scripts/discover_targets.py --temp-txt build
 
-# Não trocar '-' por 'x'
-python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt | ./Progs/espresso-logic/bin/espresso | python3 scripts/split.py --no-dash-to-x 0
-python3 scripts/split.py --help
+# .py em Circuits/ (qualquer)
+python3 scripts/discover_targets.py --py
+
+# .py em Circuits/ que têm .json correspondente
+python3 scripts/discover_targets.py --py-with-json
+
+# .v em Circuits/ que têm .json correspondente
+python3 scripts/discover_targets.py --verilog-with-json
+
+# .pla minimizados em build/temp/ com .json correspondente (excluindo _full.pla)
+python3 scripts/discover_targets.py --temp-pla build
 ```
 
-#### gen_eq.py
+#### pla_to_logisim_sop.py
 
-Converte linhas de mintermos (formato Espresso, ex.: `01-1 1`) em uma equação soma-de-produtos. É preciso informar o nome de cada bit de entrada com `-m` (ordem = bit 0, 1, 2, …).
-
-```bash
-# Pipeline completo: tabela → PLA → espresso → split (bit 2) → equação
-python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt | ./Progs/espresso-logic/bin/espresso | python3 scripts/split.py 2 | python3 scripts/gen_eq.py -m A2 -m A1 -m A0 -m B1 -m B0
-
-# Outro bit (0) com negate
-python3 scripts/logisim_to_pla.py -i Exemplo/teste.txt | ./Progs/espresso-logic/bin/espresso | python3 scripts/split.py 0 | python3 scripts/gen_eq.py -m I0 -m I1 -n
-python3 scripts/gen_eq.py --help
-```
-
-#### create_table.py
-
-Gera uma tabela verdade de exemplo (8 entradas, 12 saídas) com lógica fixa (BCD para binário, etc.). Sem argumentos; imprime na stdout no formato `input_bits | output_bits`. Útil para testar o pipeline ou gerar dados de entrada.
+Converte um arquivo PLA (formato Espresso, com ou sem cabeçalhos) em um circuito Logisim-evolution `.circ` implementado como soma-de-produtos (SOP) usando portas AND, OR e NOT.
 
 ```bash
-python3 scripts/create_table.py > Exemplo/exemplo.txt
+# Saída para arquivo .circ
+python3 scripts/pla_to_logisim_sop.py build/temp/teste.pla --out-circ build/teste.circ
+
+# Stdin → stdout
+cat build/temp/teste.pla | python3 scripts/pla_to_logisim_sop.py - --circuit-name MeuCircuito --out-circ build/teste.circ
+
+# Pipeline: tabela → PLA (com cabeçalho) → circuito Logisim
+python3 scripts/truth_table_to_pla.py Circuits/teste.txt --keep-header \
+  | python3 scripts/pla_to_logisim_sop.py - --circuit-name teste --out-circ build/teste.circ
+
+python3 scripts/pla_to_logisim_sop.py --help
 ```
 
 #### gen_truth_table.py
@@ -207,10 +219,12 @@ python3 scripts/gen_truth_table.py -i spec.py -c Decoder -o table.txt
 python3 scripts/gen_truth_table.py --help
 ```
 
-**Módulos sem CLI**
+**Módulos de biblioteca** (`scripts/lib/`)
 
-- **split_sop.py** — Funções para dividir uma equação soma-de-produtos em vários blocos (limite de termos do GAL22V10). Usado como biblioteca pelo `run_pipeline` / `eq_to_pld`.
-- **pla_to_plarom.py** — Converte linhas PLA (Espresso) para o formato Contents do componente PlaRom do Logisim-evolution. Usado como biblioteca pelo `run_pipeline`.
+- **logisim_to_pla.py** — Converte tabela verdade Logisim para formato PLA do Espresso. Possui CLI própria (`-i INPUT`, `-o OUTPUT`); também importado pelos outros scripts.
+- **eq_to_pld.py** — Gera arquivos `.pld` compatíveis com o GALASM a partir de blocos de equações e config JSON. Possui CLI própria (`--config`, `--device`, `--name`, `-p N=LABEL`); usado pelo `run_pipeline.py`.
+- **split_sop.py** — Divide equações soma-de-produtos em múltiplos blocos quando excedem o limite de termos do GAL22V10. Usado como biblioteca pelo `run_pipeline.py` / `eq_to_pld.py`.
+- **espresso.py** — Localiza e invoca o binário Espresso; suporta fallback automático para WSL no Windows. Usado como biblioteca pelos scripts que precisam de minimização.
 
 Para o uso normal do repositório, basta rodar `make`; o Makefile define entradas e parâmetros.
 

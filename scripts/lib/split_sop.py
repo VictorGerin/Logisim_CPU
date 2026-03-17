@@ -103,7 +103,7 @@ def split_sop_to_blocks(
     part_labels: list[str] = []
 
     for i, part in enumerate(parts):
-        label = part["label"]
+        label = part["label"].replace('[', '').replace(']', '')
         max_terms = int(part.get("max_terms", 0))
         chunk = terms[idx : idx + max_terms]
         idx += max_terms
@@ -158,17 +158,17 @@ def apply_output_splits(
         block = equation_blocks[out_idx]
         out_idx += 1
 
-        if out_name not in output_splits:
-            result.append(block)
-            continue
+        # Normalize name to match equation block LHS (brackets stripped by stage_equations_from_pla)
+        clean_out_name = out_name.replace('[', '').replace(']', '')
 
-        parts = output_splits[out_name]
-        if not isinstance(parts, list) or not parts:
+        # Lookup supports both "S[2]" and "S2" as keys in output_splits
+        parts = output_splits.get(out_name) or output_splits.get(clean_out_name)
+        if not parts or not isinstance(parts, list):
             result.append(block)
             continue
 
         split_blocks = split_sop_to_blocks(
-            block, parts, output_name=out_name, emit_tristate_gnd=emit_tristate_gnd
+            block, parts, output_name=clean_out_name, emit_tristate_gnd=emit_tristate_gnd
         )
         result.extend(split_blocks)
 

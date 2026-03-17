@@ -25,8 +25,14 @@
         "20": "NC",
         "21": "NC",
         "22": "NC",
-        "23": "NC",
+        "23": "S[2]0",
         "24": "VCC"
+    },
+    "output_splits": {
+        "S[2]": [
+            {"label": "S[2]0", "max_terms": 8 },
+            {"label": "S[2]", "max_terms": 14 }
+        ]
     },
     "description": ["2-bit adder: S = A + B"]
 }
